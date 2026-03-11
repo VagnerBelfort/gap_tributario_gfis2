@@ -1,0 +1,24 @@
+[
+  {
+    "id": "5938",
+    "variavel": "Valor adicionado bruto a preços correntes",
+    "unidade": "Mil reais",
+    "resultados": [
+      {
+        "classificacoes": [],
+        "series": [
+          {
+            "localidade": {
+              "id": "21",
+              "nivel": {"id": "N3", "nome": "Unidade da Federação"},
+              "nome": "Maranhão"
+            },
+            "serie": {
+              "2022": "124859000"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

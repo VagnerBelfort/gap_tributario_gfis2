@@ -1,2 +1,67 @@
+# Ignorado pelo projeto gap_tributario_gfis2
 bases/
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Distribuição / Empacotamento
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Ambiente virtual
+.venv/
+venv/
+ENV/
+env/
+
+# Dados sensíveis
+.env
+.env.*
+
+# Saída da aplicação
+output/
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+nosetests.xml
+
+# Mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Arquivos temporários
+*.tmp
+*.bak
+*.log
