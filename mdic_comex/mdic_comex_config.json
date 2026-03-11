@@ -1,0 +1,8 @@
+{
+    "mdic_url": "https://www.gov.br/mdic/pt-br/assuntos/comercio-exterior/estatisticas/base-de-dados-bruta?gad_source=1&gad_campaignid=23321094459&gbraid=0AAAABA5xg_NGalHoFH7WHgacysPuOgZw-&gclid=CjwKCAiA9aPKBhBhEiwAyz82J0jXdP1ZF8xjYL5o-Fx24xdHWixxY7ENHHoJWPGMFNtappveEIAOxoCqG0QAvD_BwE",
+    "hdfs_base_path": "/user/cloudera/mdic_comex_raw",
+    "auth": {
+        "username": null,
+        "password": null
+    }
+}
