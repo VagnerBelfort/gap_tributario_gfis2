@@ -5,11 +5,12 @@ Este arquivo define fixtures do pytest disponíveis em todos os módulos de test
 
 from __future__ import annotations
 
+from decimal import Decimal
+from pathlib import Path
+
 import pytest
 
 from gap_tributario.models import AppConfig, ConfigAliquota, PeriodoCalculo
-from pathlib import Path
-from decimal import Decimal
 
 
 @pytest.fixture
