@@ -5,3 +5,17 @@ Falhas de validação geram SchemaError imediatamente (modo fail-fast).
 """
 
 from __future__ import annotations
+
+from gap_tributario.validators.schemas import (
+    ArrecadacaoSchema,
+    ComexSchema,
+    IBGESchema,
+    PTAXSchema,
+)
+
+__all__ = [
+    "ArrecadacaoSchema",
+    "ComexSchema",
+    "IBGESchema",
+    "PTAXSchema",
+]
