@@ -232,12 +232,25 @@ def run() -> int:
             )
         else:
             try:
-                SiscomexExtractor(
+                df_siscomex = SiscomexExtractor(
                     config.oracle_dsn,
                     config.oracle_user or "",
                     config.oracle_password or "",
                 ).extract(periodo)
-            except (ExtractionError, NotImplementedError) as exc:
+                if len(df_siscomex) > 0:
+                    total_icms_siscomex = df_siscomex["valor_icms_devido"].sum()
+                    logger.info(
+                        "Siscomex: %d DIs MA %s — ICMS devido total: R$ %.2f",
+                        len(df_siscomex),
+                        periodo.label,
+                        total_icms_siscomex,
+                    )
+                else:
+                    logger.warning(
+                        "Siscomex: nenhuma DI encontrada para MA %s.",
+                        periodo.label,
+                    )
+            except ExtractionError as exc:
                 print(f"Erro: {exc}", file=sys.stderr)
                 return 2
 
