@@ -15,13 +15,18 @@ Referência de validação MA 2022:
 
 from __future__ import annotations
 
-# TODO: Implementar na tarefa "Implementar motor de cálculo VRR"
+import logging
+from decimal import Decimal
+
+from gap_tributario.models import DadosVRR, ResultadoGap
+
+logger = logging.getLogger(__name__)
 
 
 class MotorVRR:
     """Motor de cálculo VRR (OCDE) para o Gap Tributário do ICMS."""
 
-    def calcular(self, dados: object) -> object:
+    def calcular(self, dados: DadosVRR) -> ResultadoGap:
         """Executa o cálculo VRR e retorna o resultado do gap.
 
         Args:
@@ -31,8 +36,36 @@ class MotorVRR:
             ResultadoGap com VRR, gap absoluto e percentual calculados
 
         Raises:
-            ValueError: Se a base de cálculo VRR for zero (VAB-Exp+Imp=0)
+            ValueError: Se a base de cálculo VRR for zero ou negativa (VAB-Exp+Imp<=0)
         """
-        raise NotImplementedError(
-            "MotorVRR não implementado. Implementar na tarefa 'Implementar motor de cálculo VRR'"
+        base_calculo = dados.vab - dados.exportacoes_brl + dados.importacoes_brl
+
+        if base_calculo <= Decimal("0"):
+            raise ValueError(
+                "Erro: base de cálculo VRR é zero (VAB-Exp+Imp=0). Verifique dados de entrada."
+            )
+
+        icms_potencial = base_calculo * dados.aliquota_padrao
+        vrr = dados.icms_arrecadado / icms_potencial
+        gap_absoluto = icms_potencial - dados.icms_arrecadado
+        gap_percentual = (gap_absoluto / icms_potencial) * Decimal("100")
+
+        logger.info("--- Cálculo VRR ---")
+        logger.info("ICMS Potencial: %s milhões R$", icms_potencial)
+        logger.info("VRR: %s", vrr)
+        logger.info("Gap Absoluto: %s milhões R$", gap_absoluto)
+        logger.info("Gap Percentual: %s%%", gap_percentual)
+
+        return ResultadoGap(
+            periodo=dados.periodo,
+            icms_arrecadado=dados.icms_arrecadado,
+            icms_potencial=icms_potencial,
+            vrr=vrr,
+            gap_absoluto=gap_absoluto,
+            gap_percentual=gap_percentual,
+            vab=dados.vab,
+            exportacoes_brl=dados.exportacoes_brl,
+            importacoes_brl=dados.importacoes_brl,
+            aliquota_padrao=dados.aliquota_padrao,
+            ptax_media=dados.ptax_media,
         )

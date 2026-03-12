@@ -7,3 +7,7 @@ Implementa a fórmula VAT-VRR da OCDE:
 """
 
 from __future__ import annotations
+
+from gap_tributario.engine.vrr import MotorVRR
+
+__all__ = ["MotorVRR"]
