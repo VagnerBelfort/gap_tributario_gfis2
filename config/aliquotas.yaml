@@ -17,7 +17,7 @@ aliquotas:
     legislacao: "Lei 11.867/2022 — alíquota modal 20%"
 
 fontes:
-  parquet_base_path: "./bases/g_arrecadacao/ouro/"
+  parquet_base_path: "./bases/bases_arrecadacao_cruzamento/gfis2_ouro/g_arrecadacao/"
   mdic_base_path: "./mdic_comex/dados/"
 
 oracle:

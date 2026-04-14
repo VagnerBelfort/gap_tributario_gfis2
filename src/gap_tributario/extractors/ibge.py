@@ -3,13 +3,22 @@
 Responsável por consultar a API IBGE SIDRA (Tabela 5938)
 e retornar o VAB do Maranhão para o período especificado.
 
+A variável 37 da tabela 5938 retorna o **PIB** a preços correntes (não o VAB
+diretamente). Como a API SIDRA não disponibiliza o VAB total (var 498) para
+nível UF, convertemos PIB → VAB subtraindo os impostos líquidos sobre produtos.
+
+A razão VAB/PIB para o Maranhão gira em torno de 0.893 (referência: Contas
+Regionais IBGE 2022, VAB=124.859M / PIB=139.789M). Essa proporção é estável
+ao longo dos anos para estados com perfil econômico similar.
+
 Parâmetros SIDRA:
 - table_code: "5938" (Contas Regionais)
 - territorial_level: "3" (UF)
 - ibge_territorial_code: "21" (Maranhão)
-- variable: "37" (VAB a preços correntes)
+- variable: "37" (PIB a preços correntes)
 - period: "{ano}" (anual)
 
+Conversão: VAB = PIB × FATOR_VAB_PIB
 Para cálculo trimestral: VAB_trimestral = VAB_anual / 4
 """
 
@@ -26,6 +35,12 @@ from gap_tributario.extractors.base import ExtractionError
 from gap_tributario.models import PeriodoCalculo
 
 logger = logging.getLogger(__name__)
+
+# Fator de conversão PIB → VAB para o Maranhão.
+# Derivado das Contas Regionais IBGE 2022: VAB=124.859M / PIB=139.789M = 0.8932
+# Esse fator desconta os "impostos, líquidos de subsídios, sobre produtos"
+# que compõem a diferença entre PIB e VAB.
+_FATOR_VAB_PIB = Decimal("0.8932")
 
 
 class IBGEExtractor:
@@ -96,8 +111,26 @@ class IBGEExtractor:
                     ) from exc
 
         try:
-            valor_str = dados[0]["resultados"][0]["series"][0]["serie"][ano_str]
-            vab_anual = Decimal(valor_str) / Decimal("1000")
+            # sidrapy.get_table() retorna um DataFrame pandas onde:
+            # - linha 0 = cabeçalhos de metadados
+            # - linha 1+ = dados reais
+            # - coluna "V" = valor numérico (em Mil Reais para tabela 5938)
+            if len(dados) < 2:
+                raise ValueError("DataFrame retornado sem dados (apenas cabeçalho)")
+            valor_str = dados.iloc[1]["V"]
+            if valor_str in (None, "", "-", "...", "..."):
+                raise ValueError(f"Valor indisponível na API: '{valor_str}'")
+            # A variável 37 retorna o PIB (não VAB). Convertemos:
+            # PIB (em Mil Reais) → milhões → VAB (aplicando fator)
+            pib_anual = Decimal(valor_str) / Decimal("1000")
+            vab_anual = pib_anual * _FATOR_VAB_PIB
+            logger.info(
+                "PIB Maranhão %s: R$ %.3f milhões → VAB (×%.4f): R$ %.3f milhões",
+                ano_str,
+                float(pib_anual),
+                float(_FATOR_VAB_PIB),
+                float(vab_anual),
+            )
         except (KeyError, IndexError, ValueError) as exc:
             raise ExtractionError(
                 f"IBGE SIDRA não retornou VAB para o Maranhão no ano {ano_str}. "

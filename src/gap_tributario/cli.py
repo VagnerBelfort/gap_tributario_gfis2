@@ -97,6 +97,20 @@ Exemplos:
     )
 
     parser.add_argument(
+        "--exp-manual",
+        type=float,
+        metavar="VALOR",
+        help="Exportações manuais em milhões R$ (substitui leitura dos CSVs MDIC)",
+    )
+
+    parser.add_argument(
+        "--imp-manual",
+        type=float,
+        metavar="VALOR",
+        help="Importações manuais em milhões R$ (substitui leitura dos CSVs MDIC)",
+    )
+
+    parser.add_argument(
         "--verbose",
         action="store_true",
         default=False,
@@ -213,11 +227,32 @@ def run() -> int:
 
     # 3d. MDIC ComEx — exportações e importações
     try:
-        exportacoes_brl, importacoes_brl = ComexExtractor(str(config.mdic_base_path)).extract(
-            periodo, ptax_media
-        )
-        logger.info("Exportações MA %s: R$ %s milhões", periodo.label, exportacoes_brl)
-        logger.info("Importações MA %s: R$ %s milhões", periodo.label, importacoes_brl)
+        if args.exp_manual is not None and args.imp_manual is not None:
+            exportacoes_brl = Decimal(str(args.exp_manual))
+            importacoes_brl = Decimal(str(args.imp_manual))
+            logger.info("Exportações manual (override): R$ %s milhões", exportacoes_brl)
+            logger.info("Importações manual (override): R$ %s milhões", importacoes_brl)
+        elif args.exp_manual is not None or args.imp_manual is not None:
+            # Caso parcial: buscar o dado faltante via MDIC
+            exp_mdic, imp_mdic = ComexExtractor(str(config.mdic_base_path)).extract(
+                periodo, ptax_media
+            )
+            exportacoes_brl = (
+                Decimal(str(args.exp_manual)) if args.exp_manual is not None else exp_mdic
+            )
+            importacoes_brl = (
+                Decimal(str(args.imp_manual)) if args.imp_manual is not None else imp_mdic
+            )
+            logger.info("Exportações MA %s: R$ %s milhões%s", periodo.label, exportacoes_brl,
+                        " (manual)" if args.exp_manual is not None else "")
+            logger.info("Importações MA %s: R$ %s milhões%s", periodo.label, importacoes_brl,
+                        " (manual)" if args.imp_manual is not None else "")
+        else:
+            exportacoes_brl, importacoes_brl = ComexExtractor(str(config.mdic_base_path)).extract(
+                periodo, ptax_media
+            )
+            logger.info("Exportações MA %s: R$ %s milhões", periodo.label, exportacoes_brl)
+            logger.info("Importações MA %s: R$ %s milhões", periodo.label, importacoes_brl)
     except ExtractionError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2

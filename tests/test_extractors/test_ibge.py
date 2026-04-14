@@ -10,20 +10,21 @@ Testa o IBGEExtractor com mocks de sidrapy.get_table() para garantir:
 
 from __future__ import annotations
 
-import json
 from decimal import Decimal
-from pathlib import Path
 from unittest.mock import call, patch
 
+import pandas as pd
 import pytest
 import requests
 
 from gap_tributario.extractors.base import ExtractionError
-from gap_tributario.extractors.ibge import IBGEExtractor
+from gap_tributario.extractors.ibge import IBGEExtractor, _FATOR_VAB_PIB
 from gap_tributario.models import PeriodoCalculo
 
-# Caminho para o fixture de resposta da API
-FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "api_responses"
+# PIB MA 2022 em Mil Reais (variável 37, tabela 5938)
+_PIB_MIL_REAIS = "139789146"
+# VAB esperado = PIB (em milhões) × fator
+_VAB_ESPERADO = Decimal(_PIB_MIL_REAIS) / Decimal("1000") * _FATOR_VAB_PIB
 
 
 @pytest.fixture
@@ -34,10 +35,26 @@ def ibge_extractor():
 
 @pytest.fixture
 def ibge_sidra_5938_2022_response():
-    """Resposta da API IBGE SIDRA para 2022 (fixture em JSON)."""
-    fixture_path = FIXTURE_DIR / "ibge_sidra_5938_2022.json"
-    with open(fixture_path) as f:
-        return json.load(f)
+    """DataFrame simulando resposta real de sidrapy.get_table() para MA 2022.
+
+    sidrapy retorna um DataFrame pandas com:
+    - Linha 0: cabeçalhos de metadados
+    - Linha 1+: dados reais
+    - Coluna V: valor numérico (PIB em Mil Reais)
+    """
+    return pd.DataFrame({
+        "NC": ["Nível Territorial (Código)", "3"],
+        "NN": ["Nível Territorial", "Unidade da Federação"],
+        "MC": ["Unidade de Medida (Código)", "40"],
+        "MN": ["Unidade de Medida", "Mil Reais"],
+        "V": ["Valor", _PIB_MIL_REAIS],
+        "D1C": ["Unidade da Federação (Código)", "21"],
+        "D1N": ["Unidade da Federação", "Maranhão"],
+        "D2C": ["Ano (Código)", "2022"],
+        "D2N": ["Ano", "2022"],
+        "D3C": ["Variável (Código)", "37"],
+        "D3N": ["Variável", "Produto Interno Bruto a preços correntes"],
+    })
 
 
 # ---- Testes básicos de importabilidade e instanciação ----
@@ -59,15 +76,16 @@ def test_ibge_extractor_instantiable():
 
 
 def test_extract_periodo_anual_retorna_vab_correto(ibge_extractor, ibge_sidra_5938_2022_response):
-    """Mock de sidrapy.get_table() retornando fixture ibge_sidra_5938_2022.json.
+    """Mock de sidrapy.get_table() retornando PIB MA 2022.
 
-    Valor esperado: 124859000 mil reais / 1000 = 124859.000 milhões R$
+    PIB = 139789146 mil reais → 139789.146 milhões R$
+    VAB = PIB × 0.8932 = 124859.665... milhões R$
     """
     with patch("sidrapy.get_table", return_value=ibge_sidra_5938_2022_response):
         resultado = ibge_extractor.extract(PeriodoCalculo(ano=2022))
 
     assert isinstance(resultado, Decimal)
-    assert resultado == Decimal("124859.000")
+    assert resultado == _VAB_ESPERADO
 
 
 def test_extract_retorna_decimal_nao_float(ibge_extractor, ibge_sidra_5938_2022_response):
@@ -82,26 +100,26 @@ def test_extract_retorna_decimal_nao_float(ibge_extractor, ibge_sidra_5938_2022_
 def test_extract_periodo_trimestral_divide_por_4(
     ibge_extractor, ibge_sidra_5938_2022_response
 ):
-    """Mock retornando VAB anual 2022; verifica divisão por 4 para T1."""
+    """Mock retornando PIB anual 2022; verifica VAB/4 para T1."""
     with patch("sidrapy.get_table", return_value=ibge_sidra_5938_2022_response):
         resultado = ibge_extractor.extract(PeriodoCalculo(ano=2022, trimestre=1))
 
-    esperado = Decimal("124859.000") / Decimal("4")
+    esperado = _VAB_ESPERADO / Decimal("4")
     assert resultado == esperado
 
 
-def test_extract_converte_mil_reais_para_milhoes(
+def test_extract_converte_pib_para_vab(
     ibge_extractor, ibge_sidra_5938_2022_response
 ):
-    """Verifica que a conversão de unidade está correta.
+    """Verifica que a conversão PIB → VAB está correta.
 
-    Fixture retorna '124859000' em mil reais → deve retornar Decimal('124859.000') em milhões.
+    PIB = 139789146 mil reais → 139789.146 milhões R$ → VAB = PIB × 0.8932
     """
     with patch("sidrapy.get_table", return_value=ibge_sidra_5938_2022_response):
         resultado = ibge_extractor.extract(PeriodoCalculo(ano=2022))
 
-    # 124859000 (mil reais) / 1000 = 124859.000 (milhões R$)
-    assert resultado == Decimal("124859000") / Decimal("1000")
+    pib_milhoes = Decimal(_PIB_MIL_REAIS) / Decimal("1000")
+    assert resultado == pib_milhoes * _FATOR_VAB_PIB
 
 
 # ---- Testes de erro e retry ----
@@ -133,7 +151,7 @@ def test_extract_retry_3_tentativas(ibge_extractor, ibge_sidra_5938_2022_respons
             resultado = ibge_extractor.extract(PeriodoCalculo(ano=2022))
 
     assert isinstance(resultado, Decimal)
-    assert resultado == Decimal("124859.000")
+    assert resultado == _VAB_ESPERADO
 
 
 def test_extract_falha_apos_max_retries(ibge_extractor):
@@ -177,32 +195,15 @@ def test_extract_numero_correto_de_tentativas(ibge_extractor):
     assert mock_get.call_count == ibge_extractor.max_retries
 
 
-def test_extract_resposta_sem_valor_levanta_extraction_error(ibge_extractor):
-    """Mock retornando resposta sem o ano solicitado na série; verifica ExtractionError."""
-    resposta_sem_ano = [
-        {
-            "id": "5938",
-            "variavel": "Valor adicionado bruto a preços correntes",
-            "unidade": "Mil reais",
-            "resultados": [
-                {
-                    "classificacoes": [],
-                    "series": [
-                        {
-                            "localidade": {
-                                "id": "21",
-                                "nivel": {"id": "N3", "nome": "Unidade da Federação"},
-                                "nome": "Maranhão",
-                            },
-                            "serie": {"2022": "124859000"},  # não contém 2023
-                        }
-                    ],
-                }
-            ],
-        }
-    ]
+def test_extract_resposta_sem_dados_levanta_extraction_error(ibge_extractor):
+    """Mock retornando DataFrame com apenas cabeçalho (sem dados); verifica ExtractionError."""
+    # DataFrame com apenas 1 linha (cabeçalho de metadados, sem dados reais)
+    resposta_vazia = pd.DataFrame({
+        "NC": ["Nível Territorial (Código)"],
+        "V": ["Valor"],
+    })
 
-    with patch("sidrapy.get_table", return_value=resposta_sem_ano):
+    with patch("sidrapy.get_table", return_value=resposta_vazia):
         with pytest.raises(ExtractionError) as exc_info:
             ibge_extractor.extract(PeriodoCalculo(ano=2023))
 

@@ -65,3 +65,10 @@ dmypy.json
 *.tmp
 *.bak
 *.log
+
+# index search
+.serena/
+
+# data
+mdic_comex/dados/
+output/
