@@ -21,14 +21,14 @@ entre Calculate e Report.
 
 ## Acceptance criteria
 
-- [ ] `AmfRenunciaReader` retorna renúncia ICMS por ano (2022 → 2.182 mi) e detalhe por modalidade.
-- [ ] `GapDecomposer` decompõe o golden 2022: Gap 10.148 = Policy 2.182 + Compliance 7.966.
-- [ ] Ano sem renúncia → degrada para "só gap total" (sem quebrar).
-- [ ] Renúncia > gap → tratada/avisada (compliance negativo).
-- [ ] PDF e Excel exibem as linhas de decomposição.
-- [ ] Caveat no relatório: renúncia é estimativa LDO (prospectiva).
-- [ ] Testes de `AmfRenunciaReader` e `GapDecomposer`; cobertura ≥85% nos módulos novos.
-- [ ] `pytest` verde, `ruff` limpo, golden inalterado.
+- [x] `AmfRenunciaReader` retorna renúncia ICMS por ano (2022 → 2.182,13 mi) e detalhe por modalidade (Créd.Presumido 1.268 + Isenção 520 + Redução BC 394). Cobertura 2022–2029 (vintages LDO-2022/2025/2026).
+- [x] `decompor_gap` decompõe o golden 2022: Gap 10.148,22 = Policy 2.182,13 (21,50%) + Compliance 7.966,09 (78,50%).
+- [x] Ano sem renúncia → reader devolve `None`; cli degrada para "só gap total" (sem quebrar). Trimestral também omite (renúncia é anual).
+- [x] Renúncia > gap → `compliance_negativo=True` + aviso no PDF/Excel.
+- [x] PDF e Excel exibem a seção "1.1 Decomposição do Gap" + detalhe por modalidade.
+- [x] Caveat no relatório: renúncia é estimativa prospectiva da LDO (vintage citada).
+- [x] Testes de `AmfRenunciaParser/Reader` e `decompor_gap`; cobertura **100%** nos módulos novos.
+- [x] `pytest` verde (299 passed), `ruff` limpo, golden inalterado, `MotorVRR` intocado.
 
 ## Blocked by
 

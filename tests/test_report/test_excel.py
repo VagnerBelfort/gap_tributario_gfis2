@@ -189,6 +189,34 @@ def test_campos_obrigatorios_no_conteudo(resultado_2022, config_test, tmp_path):
     assert "VAB" in texto
 
 
+def test_decomposicao_no_conteudo(resultado_2022, config_test, tmp_path):
+    """Com decomposição, a planilha exibe policy/compliance, modalidade e caveat LDO."""
+    from gap_tributario.models import DecomposicaoGap, RenunciaFiscal
+
+    decomposicao = DecomposicaoGap(
+        gap_total=Decimal("10148.22"),
+        policy_gap=Decimal("2182.13"),
+        compliance_gap=Decimal("7966.09"),
+        policy_pct=Decimal("21.50"),
+        compliance_pct=Decimal("78.50"),
+        renuncia=RenunciaFiscal(
+            ano=2022,
+            total=Decimal("2182.13"),
+            por_modalidade={"Crédito Presumido": Decimal("1268.01")},
+            vintage="LDO-2022",
+        ),
+    )
+
+    saida = tmp_path / "relatorios"
+    arquivo = ExcelReport().gerar(resultado_2022, None, config_test, saida, decomposicao)
+    texto = _extrair_texto_xlsx(arquivo)
+
+    assert "Policy Gap" in texto
+    assert "Compliance Gap" in texto
+    assert "Crédito Presumido" in texto
+    assert "LDO-2022" in texto
+
+
 def test_vrr_referencia_no_conteudo(resultado_2022, config_test, tmp_path):
     """VRR de referência MA 2022 ≈ 0,5183 está presente na planilha."""
     saida = tmp_path / "relatorios"

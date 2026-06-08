@@ -14,12 +14,12 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import xlsxwriter
 
 if TYPE_CHECKING:
-    from gap_tributario.models import AppConfig, DadosVRR, ResultadoGap
+    from gap_tributario.models import AppConfig, DadosVRR, DecomposicaoGap, ResultadoGap
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,7 @@ class ExcelReport:
         dados: "DadosVRR",
         config: "AppConfig",
         caminho_saida: Path,
+        decomposicao: "Optional[DecomposicaoGap]" = None,
     ) -> Path:
         """Gera o relatório Excel.
 
@@ -106,6 +107,7 @@ class ExcelReport:
             dados: DadosVRR com os dados de entrada
             config: AppConfig com a configuração da aplicação
             caminho_saida: Diretório de saída para o arquivo Excel
+            decomposicao: Decomposição policy/compliance (opcional, quando há renúncia)
 
         Returns:
             Path para o arquivo Excel gerado
@@ -125,7 +127,7 @@ class ExcelReport:
         arquivo = caminho_saida / nome_arquivo
 
         try:
-            self._gerar_workbook(resultado, config, arquivo)
+            self._gerar_workbook(resultado, config, arquivo, decomposicao)
         except OSError as e:
             raise OSError(f"Não foi possível escrever o arquivo de saída '{arquivo}': {e}") from e
 
@@ -139,6 +141,7 @@ class ExcelReport:
         resultado: "ResultadoGap",
         config: "AppConfig",
         arquivo: Path,
+        decomposicao: "Optional[DecomposicaoGap]" = None,
     ) -> None:
         """Cria o workbook Excel com todas as seções."""
         workbook = xlsxwriter.Workbook(str(arquivo))
@@ -261,6 +264,62 @@ class ExcelReport:
             linha += 1
 
         linha += 1
+
+        # === 1.1 DECOMPOSIÇÃO DO GAP (policy vs compliance) ===
+        if decomposicao is not None:
+            ws.merge_range(
+                linha, 0, linha, 1, "1.1. Decomposição do Gap (Policy vs Compliance)", fmt_secao
+            )
+            linha += 1
+
+            dados_decomp = [
+                ("Gap Tributário Total", _formatar_brl(decomposicao.gap_total), "100,00%"),
+                (
+                    "Policy Gap (renúncia fiscal legal)",
+                    _formatar_brl(decomposicao.policy_gap),
+                    _formatar_percentual(decomposicao.policy_pct),
+                ),
+                (
+                    "Compliance Gap (evasão/inadimplência)",
+                    _formatar_brl(decomposicao.compliance_gap),
+                    _formatar_percentual(decomposicao.compliance_pct),
+                ),
+            ]
+            for i, (comp, valor, pct) in enumerate(dados_decomp):
+                if i % 2 == 0:
+                    ws.write(linha, 0, comp, fmt_label)
+                    ws.write(linha, 1, f"{valor} ({pct})", fmt_valor)
+                else:
+                    ws.write(linha, 0, comp, fmt_label_par)
+                    ws.write(linha, 1, f"{valor} ({pct})", fmt_linha_par)
+                linha += 1
+
+            # Detalhamento por modalidade da renúncia
+            renuncia = decomposicao.renuncia
+            for mod, val in renuncia.por_modalidade.items():
+                ws.write(linha, 0, f"  Renúncia — {mod}", fmt_label)
+                ws.write(linha, 1, _formatar_brl(val), fmt_valor)
+                linha += 1
+
+            if decomposicao.compliance_negativo:
+                ws.merge_range(
+                    linha,
+                    0,
+                    linha,
+                    1,
+                    "Atenção: a renúncia estimada excede o gap total; compliance gap negativo.",
+                )
+                linha += 1
+
+            ws.merge_range(
+                linha,
+                0,
+                linha,
+                1,
+                f"A renúncia fiscal é estimativa prospectiva da LDO (vintage {renuncia.vintage}, "
+                "AMF Tabela 7 — fonte BI-Oracle-SEFAZ-MA); o policy gap herda essa natureza.",
+            )
+            linha += 2
 
         # === 2. DADOS DE ENTRADA ===
         ws.merge_range(linha, 0, linha, 1, "2. Dados de Entrada Utilizados", fmt_secao)

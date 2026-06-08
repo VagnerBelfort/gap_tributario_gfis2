@@ -194,8 +194,8 @@ def test_relatorio_pdf_contem_secoes_obrigatorias(config_integracao, saida_dir):
     original_construir_story = PDFReport._construir_story
     captured_story: list = []
 
-    def mock_construir_story(self, resultado, config):  # type: ignore[no-untyped-def]
-        story = original_construir_story(self, resultado, config)
+    def mock_construir_story(self, resultado, config, decomposicao=None):  # type: ignore[no-untyped-def]
+        story = original_construir_story(self, resultado, config, decomposicao)
         captured_story.extend(story)
         return story
 

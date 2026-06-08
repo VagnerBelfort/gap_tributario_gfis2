@@ -149,7 +149,9 @@ def run() -> int:
     from pathlib import Path
 
     from gap_tributario.config import load_config
+    from gap_tributario.engine.gap_decomposition import decompor_gap
     from gap_tributario.engine.vrr import MotorVRR
+    from gap_tributario.extractors.amf_renuncia import AmfRenunciaReader
     from gap_tributario.extractors.arrecadacao import ArrecadacaoExtractor
     from gap_tributario.extractors.base import ExtractionError
     from gap_tributario.extractors.comex import ComexExtractor
@@ -339,6 +341,24 @@ def run() -> int:
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
 
+    # === Estágio 5.5: DECOMPOSIÇÃO (policy vs compliance) — aditivo, opcional ===
+    # A renúncia da AMF é anual; só decompomos períodos anuais. Ano sem renúncia
+    # degrada para "só gap total" sem quebrar.
+    decomposicao = None
+    if periodo.is_anual:
+        renuncia = AmfRenunciaReader().ler(periodo.ano)
+        if renuncia is not None:
+            decomposicao = decompor_gap(resultado, renuncia)
+            logger.info(
+                "Decomposição (%s): policy=R$ %s mi, compliance=R$ %s mi%s",
+                renuncia.vintage,
+                decomposicao.policy_gap,
+                decomposicao.compliance_gap,
+                " [ATENÇÃO: renúncia > gap]" if decomposicao.compliance_negativo else "",
+            )
+    else:
+        logger.info("Período trimestral: decomposição (renúncia anual) omitida.")
+
     logger.info("--- Relatório ---")
 
     # === Estágio 6: REPORT ===
@@ -346,9 +366,13 @@ def run() -> int:
     for formato in args.formato:
         try:
             if formato == "pdf":
-                arquivo = PDFReport().gerar(resultado, dados_vrr, config, config.output_path)
+                arquivo = PDFReport().gerar(
+                    resultado, dados_vrr, config, config.output_path, decomposicao
+                )
             else:  # formato == "excel"
-                arquivo = ExcelReport().gerar(resultado, dados_vrr, config, config.output_path)
+                arquivo = ExcelReport().gerar(
+                    resultado, dados_vrr, config, config.output_path, decomposicao
+                )
             arquivos_gerados.append(arquivo)
             logger.info("Relatório gerado: %s", arquivo)
         except OSError as exc:

@@ -199,6 +199,56 @@ def test_campos_obrigatorios_no_story(resultado_2022, config_test):
     assert "2022" in todo_texto
 
 
+def test_decomposicao_aparece_no_story(resultado_2022, config_test):
+    """Quando há decomposição, o story PDF exibe policy/compliance e o caveat LDO."""
+    from reportlab.platypus import Paragraph, Table
+
+    from gap_tributario.models import DecomposicaoGap, RenunciaFiscal
+
+    decomposicao = DecomposicaoGap(
+        gap_total=Decimal("10148.22"),
+        policy_gap=Decimal("2182.13"),
+        compliance_gap=Decimal("7966.09"),
+        policy_pct=Decimal("21.50"),
+        compliance_pct=Decimal("78.50"),
+        renuncia=RenunciaFiscal(
+            ano=2022,
+            total=Decimal("2182.13"),
+            por_modalidade={"Crédito Presumido": Decimal("1268.01")},
+            vintage="LDO-2022",
+        ),
+    )
+
+    pdf = PDFReport()
+    story = pdf._construir_story(resultado_2022, config_test, decomposicao)
+
+    texto_paras = " ".join(item.text for item in story if isinstance(item, Paragraph))
+    texto_tabs = " ".join(
+        cell
+        for item in story
+        if isinstance(item, Table)
+        for row in item._cellvalues
+        for cell in row
+        if isinstance(cell, str)
+    )
+    todo = texto_paras + " " + texto_tabs
+
+    assert "Policy Gap" in todo
+    assert "Compliance Gap" in todo
+    assert "Crédito Presumido" in todo  # detalhe por modalidade
+    assert "LDO-2022" in todo  # caveat de vintage/estimativa LDO
+
+
+def test_sem_decomposicao_nao_exibe_secao(resultado_2022, config_test):
+    """Sem decomposição (None), o story não contém a seção de policy/compliance."""
+    from reportlab.platypus import Paragraph
+
+    pdf = PDFReport()
+    story = pdf._construir_story(resultado_2022, config_test, None)
+    texto = " ".join(item.text for item in story if isinstance(item, Paragraph))
+    assert "Policy Gap" not in texto
+
+
 # ---------------------------------------------------------------------------
 # Teste de erro de escrita
 # ---------------------------------------------------------------------------
