@@ -24,7 +24,7 @@ from pathlib import Path
 import polars as pl
 
 from gap_tributario.extractors.base import ExtractionError
-from gap_tributario.models import PeriodoCalculo
+from gap_tributario.models import PeriodoCalculo, Proveniencia
 
 logger = logging.getLogger(__name__)
 
@@ -224,3 +224,20 @@ class SigdefIcmsExtractor:
         icms_milhoes = Decimal(str(total_reais)) / _FATOR_MILHOES
         logger.info("ICMS SIGDEF %s (MA): R$ %s milhões", periodo.label, icms_milhoes)
         return icms_milhoes
+
+    def proveniencia(self, data_extracao: str) -> Proveniencia:
+        """Retorna a proveniência do ICMS arrecadado extraído desta fonte.
+
+        Args:
+            data_extracao: data da extração no formato ISO (YYYY-MM-DD), stampada
+                           pelo orquestrador (CLI).
+        """
+        return Proveniencia(
+            variavel="ICMS Arrecadado",
+            origem="SIGDEF — ICMS arrecadado por setor (CONFAZ/SIGDEF)",
+            fonte="Export SIGDEF por setor (ICMS total, posição 21); "
+            "parquet limpo versionado",
+            data_extracao=data_extracao,
+            observacoes="Cobertura 1997–2023; fonte nº1 da cascata de ICMS, à frente "
+            "do GFIS2 (fallback). Agregação mês→período.",
+        )

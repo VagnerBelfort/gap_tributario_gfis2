@@ -194,8 +194,8 @@ def test_relatorio_pdf_contem_secoes_obrigatorias(config_integracao, saida_dir):
     original_construir_story = PDFReport._construir_story
     captured_story: list = []
 
-    def mock_construir_story(self, resultado, config, decomposicao=None):  # type: ignore[no-untyped-def]
-        story = original_construir_story(self, resultado, config, decomposicao)
+    def mock_construir_story(self, resultado, config, decomposicao=None, proveniencias=None):  # type: ignore[no-untyped-def]
+        story = original_construir_story(self, resultado, config, decomposicao, proveniencias)
         captured_story.extend(story)
         return story
 
@@ -456,6 +456,39 @@ def test_pipeline_trimestral_difere_do_anual(config_integracao, saida_dir):
     # O trimestre é estritamente menor que o ano (sem rateio, agregação real).
     assert dados_t1.exportacoes_brl < dados_anual.exportacoes_brl
     assert dados_t1.importacoes_brl < dados_anual.importacoes_brl
+
+
+def test_pipeline_propaga_proveniencia_para_o_relatorio(config_integracao, saida_dir):
+    """O pipeline monta as proveniências (fonte vencedora da cascata) e as passa ao relatório.
+
+    No golden: IMESC vence o VAB (dados 2022 reais) e o SIGDEF é forçado a cair, então
+    o GFIS2 vence o ICMS. Cada proveniência carrega uma data de extração ISO.
+    """
+    from gap_tributario.report.pdf import PDFReport
+
+    capturado: dict = {}
+    original_gerar = PDFReport.gerar
+
+    def mock_gerar(self, resultado, dados, config, caminho, decomposicao=None, proveniencias=None):  # type: ignore[no-untyped-def]
+        capturado["proveniencias"] = proveniencias
+        return original_gerar(self, resultado, dados, config, caminho, decomposicao, proveniencias)
+
+    with patch.object(PDFReport, "gerar", mock_gerar):
+        result = _pipeline_referencia(config_integracao, saida_dir, "pdf")
+
+    assert result == 0
+    provs = capturado["proveniencias"]
+    assert provs is not None and len(provs) >= 2
+
+    variaveis = {p.variavel for p in provs}
+    origens = " ".join(p.origem for p in provs)
+    assert "VAB" in variaveis
+    assert "ICMS Arrecadado" in variaveis
+    assert "IMESC" in origens  # IMESC vence o VAB no golden
+    assert "GFIS2" in origens  # SIGDEF forçado a cair → GFIS2 vence o ICMS
+
+    # Toda proveniência carrega uma data de extração no formato ISO (YYYY-MM-DD).
+    assert all(len(p.data_extracao) == 10 and p.data_extracao[4] == "-" for p in provs)
 
 
 def test_pipeline_subprocess_ptax_vab_manuais_exit_0(config_integracao, saida_dir):

@@ -48,3 +48,17 @@ def test_trimestre_fora_de_cobertura_levanta_extraction_error() -> None:
     """Trimestre fora da cobertura sinaliza fallback via ExtractionError."""
     with pytest.raises(ExtractionError):
         ImescPibExtractor().extract(PeriodoCalculo(ano=2026, trimestre=1))
+
+
+def test_proveniencia_descreve_fonte_imesc() -> None:
+    """proveniencia() carrega a origem IMESC, a variável VAB e a data injetada."""
+    from gap_tributario.models import Proveniencia
+
+    prov = ImescPibExtractor().proveniencia("2026-06-08")
+
+    assert isinstance(prov, Proveniencia)
+    assert prov.variavel == "VAB"
+    assert "IMESC" in prov.origem
+    assert "Tabela 15" in prov.fonte
+    assert prov.data_extracao == "2026-06-08"
+    assert "2021" in prov.observacoes  # caveat de cobertura ≥2021

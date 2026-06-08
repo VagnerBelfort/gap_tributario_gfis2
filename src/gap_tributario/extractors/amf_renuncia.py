@@ -28,7 +28,7 @@ from typing import Optional
 
 import polars as pl
 
-from gap_tributario.models import RenunciaFiscal
+from gap_tributario.models import Proveniencia, RenunciaFiscal
 
 logger = logging.getLogger(__name__)
 
@@ -201,3 +201,20 @@ class AmfRenunciaReader:
         total = sum(por_modalidade.values(), Decimal("0"))
         logger.info("Renúncia ICMS %d (%s): R$ %s milhões", ano, vintage, total)
         return RenunciaFiscal(ano=ano, total=total, por_modalidade=por_modalidade, vintage=vintage)
+
+    def proveniencia(self, renuncia: RenunciaFiscal, data_extracao: str) -> Proveniencia:
+        """Retorna a proveniência da renúncia fiscal usada na decomposição.
+
+        Args:
+            renuncia: RenunciaFiscal lida (carrega a vintage da LDO aplicada).
+            data_extracao: data da extração no formato ISO (YYYY-MM-DD), stampada
+                           pelo orquestrador (CLI).
+        """
+        return Proveniencia(
+            variavel="Renúncia Fiscal (ICMS)",
+            origem="AMF Tabela 7 (LDO/MA) — fonte BI-Oracle-SEFAZ-MA",
+            fonte=f"Anexo de Metas Fiscais, Tabela 7 — vintage {renuncia.vintage}",
+            data_extracao=data_extracao,
+            observacoes="Estimativa prospectiva da LDO. Soma das modalidades de ICMS "
+            "(Crédito Presumido + Isenção + Redução de Base de Cálculo); IPVA fora.",
+        )

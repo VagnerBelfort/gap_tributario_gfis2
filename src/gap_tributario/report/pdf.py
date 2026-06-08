@@ -24,7 +24,13 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from reportlab.platypus.flowables import HRFlowable
 
 if TYPE_CHECKING:
-    from gap_tributario.models import AppConfig, DadosVRR, DecomposicaoGap, ResultadoGap
+    from gap_tributario.models import (
+        AppConfig,
+        DadosVRR,
+        DecomposicaoGap,
+        Proveniencia,
+        ResultadoGap,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,17 @@ logger = logging.getLogger(__name__)
 _COR_PRIMARIA = colors.HexColor("#1a3a6b")  # Azul institucional escuro
 _COR_LINHA_PAR = colors.HexColor("#e8edf5")  # Azul muito claro para linhas alternadas
 _COR_TEXTO_CLARO = colors.white
+
+# Caveats gerais de cobertura/metodologia exibidos no bloco de proveniência
+# (compartilhados pelos relatórios PDF e Excel — ver report/excel.py).
+_CAVEATS_COBERTURA = (
+    "VAB (IMESC) cobre a partir de 2021; anos anteriores usam a cascata de "
+    "fallback (IBGE SIDRA 5938, com lag de ~2 anos).",
+    "A renúncia fiscal (AMF Tabela 7) é estimativa prospectiva da LDO; "
+    "o policy gap herda essa natureza estimativa.",
+    "A alíquota modal do ICMS-MA passou de 18% para 20% em 2023 "
+    "(Lei Estadual 11.867/2022); mudanças mid-year não são suportadas.",
+)
 
 
 def _formatar_brl(valor: Decimal) -> str:
@@ -104,6 +121,7 @@ class PDFReport:
         config: "AppConfig",
         caminho_saida: Path,
         decomposicao: "Optional[DecomposicaoGap]" = None,
+        proveniencias: "Optional[List[Proveniencia]]" = None,
     ) -> Path:
         """Gera o relatório PDF.
 
@@ -113,6 +131,7 @@ class PDFReport:
             config: AppConfig com a configuração da aplicação
             caminho_saida: Diretório de saída para o arquivo PDF
             decomposicao: Decomposição policy/compliance (opcional, quando há renúncia)
+            proveniencias: Lista de Proveniencia por variável (opcional)
 
         Returns:
             Path para o arquivo PDF gerado
@@ -141,7 +160,7 @@ class PDFReport:
                 bottomMargin=2 * cm,
                 compress=0,
             )
-            story = self._construir_story(resultado, config, decomposicao)
+            story = self._construir_story(resultado, config, decomposicao, proveniencias)
             doc.build(story)
         except OSError as e:
             raise OSError(
@@ -158,6 +177,7 @@ class PDFReport:
         resultado: "ResultadoGap",
         config: "AppConfig",
         decomposicao: "Optional[DecomposicaoGap]" = None,
+        proveniencias: "Optional[List[Proveniencia]]" = None,
     ) -> List:
         """Constrói a lista de flowables para o documento PDF."""
         estilos = getSampleStyleSheet()
@@ -488,6 +508,68 @@ class PDFReport:
 
         for item in itens_metodologia:
             story.append(Paragraph(f"&#x2022; {item}", estilo_normal))
+
+        # === 4. PROVENIÊNCIA DAS FONTES ===
+        if proveniencias:
+            story.append(Paragraph("4. Proveniência das Fontes", estilo_secao))
+
+            # Células como Paragraphs para permitir wrap dos textos longos de fonte.
+            estilo_celula = ParagraphStyle(
+                "CelulaProv", parent=estilo_normal, fontSize=8, spaceAfter=0
+            )
+            cabecalho = ["Variável", "Origem", "Fonte", "Data de Extração"]
+            estilo_cab = ParagraphStyle(
+                "CabProv", parent=estilo_celula, textColor=_COR_TEXTO_CLARO
+            )
+            linhas_wrap = [[Paragraph(f"<b>{c}</b>", estilo_cab) for c in cabecalho]]
+            for p in proveniencias:
+                linhas_wrap.append(
+                    [
+                        Paragraph(f"<b>{p.variavel}</b>", estilo_celula),
+                        Paragraph(p.origem, estilo_celula),
+                        Paragraph(p.fonte, estilo_celula),
+                        Paragraph(p.data_extracao, estilo_celula),
+                    ]
+                )
+            tabela_prov = Table(
+                linhas_wrap,
+                colWidths=[
+                    largura_pagina * 0.18,
+                    largura_pagina * 0.30,
+                    largura_pagina * 0.37,
+                    largura_pagina * 0.15,
+                ],
+            )
+            tabela_prov.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), _COR_PRIMARIA),
+                        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                        ("BOX", (0, 0), (-1, -1), 1, _COR_PRIMARIA),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ]
+                )
+            )
+            story.append(tabela_prov)
+            story.append(Spacer(1, 0.2 * cm))
+
+            # Observações por variável (caveats específicos da fonte).
+            for p in proveniencias:
+                if p.observacoes:
+                    story.append(
+                        Paragraph(f"<b>{p.variavel}:</b> {p.observacoes}", estilo_normal)
+                    )
+
+            # Caveats gerais de cobertura/metodologia.
+            for caveat in _CAVEATS_COBERTURA:
+                story.append(Paragraph(f"&#x2022; <i>{caveat}</i>", estilo_normal))
+
+            story.append(Spacer(1, 0.3 * cm))
 
         story.append(Spacer(1, 0.5 * cm))
         story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))

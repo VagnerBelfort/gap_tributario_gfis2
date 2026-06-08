@@ -22,7 +22,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from gap_tributario.extractors.base import ExtractionError
-from gap_tributario.models import PeriodoCalculo
+from gap_tributario.models import PeriodoCalculo, Proveniencia
 
 logger = logging.getLogger(__name__)
 
@@ -85,3 +85,20 @@ class ImescPibExtractor:
 
         logger.info("VAB IMESC %s: R$ %s milhões", periodo.label, vab)
         return vab
+
+    def proveniencia(self, data_extracao: str) -> Proveniencia:
+        """Retorna a proveniência do VAB extraído desta fonte.
+
+        Args:
+            data_extracao: data da extração no formato ISO (YYYY-MM-DD), stampada
+                           pelo orquestrador (CLI).
+        """
+        return Proveniencia(
+            variavel="VAB",
+            origem="IMESC — Instituto Maranhense de Estudos Socioeconômicos e Cartográficos",
+            fonte="Relatório Especializado do PIB Trimestral do Maranhão, Tabela 15 "
+            "(valores correntes)",
+            data_extracao=data_extracao,
+            observacoes="Cobertura 2021–2025; VAB trimestral nativo (sem rateio). "
+            "Anos anteriores a 2021 usam a cascata de fallback (IBGE SIDRA 5938).",
+        )

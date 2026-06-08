@@ -256,3 +256,26 @@ def test_ioerror_quando_caminho_invalido(resultado_2022, config_test, tmp_path):
     excel = ExcelReport()
     with pytest.raises(IOError):
         excel.gerar(resultado_2022, None, config_test, caminho_invalido)
+
+
+def test_proveniencia_no_conteudo(resultado_2022, config_test, tmp_path):
+    """Com proveniências, o Excel mostra a seção com origem/fonte/data e caveats."""
+    from gap_tributario.models import Proveniencia
+
+    saida = tmp_path / "relatorios"
+    provs = [
+        Proveniencia(
+            variavel="VAB",
+            origem="IMESC",
+            fonte="Relatório PIB Trimestral, Tabela 15",
+            data_extracao="2026-06-08",
+            observacoes="Cobertura 2021–2025.",
+        ),
+    ]
+    arquivo = ExcelReport().gerar(resultado_2022, None, config_test, saida, None, provs)
+
+    texto = _extrair_texto_xlsx(arquivo)
+    assert "Proveni" in texto
+    assert "IMESC" in texto
+    assert "2026-06-08" in texto
+    assert "2021" in texto  # caveat VAB

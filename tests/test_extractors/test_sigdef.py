@@ -205,3 +205,15 @@ def test_parquet_corrompido_levanta_extraction_error(tmp_path: Path) -> None:
     corrompido.write_text("isto não é um parquet válido", encoding="utf-8")
     with pytest.raises(ExtractionError):
         SigdefIcmsExtractor(data_path=corrompido).extract(PeriodoCalculo(ano=2022))
+
+
+def test_proveniencia_descreve_fonte_sigdef() -> None:
+    """proveniencia() carrega a origem SIGDEF, a variável ICMS e a data injetada."""
+    from gap_tributario.models import Proveniencia
+
+    prov = SigdefIcmsExtractor().proveniencia("2026-06-08")
+
+    assert isinstance(prov, Proveniencia)
+    assert prov.variavel == "ICMS Arrecadado"
+    assert "SIGDEF" in prov.origem
+    assert prov.data_extracao == "2026-06-08"

@@ -11,12 +11,12 @@ relatório PDF e Excel.
 
 ## Acceptance criteria
 
-- [ ] `Proveniencia` definida em `models.py`.
-- [ ] VAB (IMESC), ICMS (SIGDEF) e renúncia (AMF) carregam sua `Proveniencia`.
-- [ ] PDF e Excel mostram, por variável, a origem, a fonte e a data de extração.
-- [ ] Caveats de cobertura (VAB ≥2021; renúncia prospectiva; alíquota 18→20% em 2023) aparecem no relatório.
-- [ ] Testes cobrindo a propagação da proveniência; cobertura mantida.
-- [ ] `pytest` verde, `ruff` limpo, golden inalterado.
+- [x] `Proveniencia` definida em `models.py`. *(frozen dataclass: variavel/origem/fonte/data_extracao/observacoes)*
+- [x] VAB (IMESC), ICMS (SIGDEF) e renúncia (AMF) carregam sua `Proveniencia`. *(método `proveniencia(...)` em cada extrator)*
+- [x] PDF e Excel mostram, por variável, a origem, a fonte e a data de extração. *(seção "4. Proveniência das Fontes")*
+- [x] Caveats de cobertura (VAB ≥2021; renúncia prospectiva; alíquota 18→20% em 2023) aparecem no relatório. *(`_CAVEATS_COBERTURA`)*
+- [x] Testes cobrindo a propagação da proveniência; cobertura mantida. *(+12 testes; total 92%; extratores 100%, models 99%, reports 93%)*
+- [x] `pytest` verde (311), `ruff` limpo (src/), golden inalterado (VRR≈0,52).
 
 ## Blocked by
 

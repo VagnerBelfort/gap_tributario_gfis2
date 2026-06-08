@@ -311,3 +311,64 @@ def test_formatar_aliquota_20():
 def test_formatar_ptax():
     """Formata PTAX com 4 casas decimais no padrão brasileiro."""
     assert _formatar_ptax(Decimal("5.1646")) == "R$ 5,1646"
+
+
+def test_proveniencia_aparece_no_story(resultado_2022, config_test):
+    """Quando há proveniências, o story PDF exibe a seção com origem/fonte/data e caveats."""
+    from reportlab.platypus import Paragraph, Table
+
+    from gap_tributario.models import Proveniencia
+
+    provs = [
+        Proveniencia(
+            variavel="VAB",
+            origem="IMESC",
+            fonte="Relatório PIB Trimestral, Tabela 15",
+            data_extracao="2026-06-08",
+            observacoes="Cobertura 2021–2025.",
+        ),
+        Proveniencia(
+            variavel="ICMS Arrecadado",
+            origem="SIGDEF",
+            fonte="Export por setor",
+            data_extracao="2026-06-08",
+        ),
+    ]
+
+    pdf = PDFReport()
+    story = pdf._construir_story(resultado_2022, config_test, None, provs)
+
+    def _texto_celula(cell) -> str:
+        if isinstance(cell, str):
+            return cell
+        if isinstance(cell, Paragraph):
+            return cell.text
+        return ""
+
+    texto_paras = " ".join(item.text for item in story if isinstance(item, Paragraph))
+    texto_tabs = " ".join(
+        _texto_celula(cell)
+        for item in story
+        if isinstance(item, Table)
+        for row in item._cellvalues
+        for cell in row
+    )
+    todo = texto_paras + " " + texto_tabs
+
+    assert "Proveni" in todo  # título da seção (Proveniência)
+    assert "IMESC" in todo
+    assert "SIGDEF" in todo
+    assert "2026-06-08" in todo  # data de extração por variável
+    # Caveats de cobertura/metodologia obrigatórios:
+    assert "2021" in todo  # VAB cobertura ≥2021
+    assert "11.867" in todo or "20%" in todo  # alíquota 18→20% em 2023
+
+
+def test_sem_proveniencia_nao_exibe_secao(resultado_2022, config_test):
+    """Sem proveniências (None), o story não contém a seção de proveniência."""
+    from reportlab.platypus import Paragraph
+
+    pdf = PDFReport()
+    story = pdf._construir_story(resultado_2022, config_test, None, None)
+    texto = " ".join(item.text for item in story if isinstance(item, Paragraph))
+    assert "Proveniência das Fontes" not in texto

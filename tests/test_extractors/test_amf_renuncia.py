@@ -132,3 +132,23 @@ def test_materializar_csv_varre_vintages_e_grava(tmp_path: Path, monkeypatch) ->
     assert "ano,vintage,modalidade,valor_brl" in texto
     assert "2022,LDO-2022,Crédito Presumido,1000000000" in texto
     assert "2029,LDO-2026,Crédito Presumido,1000000000" in texto
+
+
+def test_proveniencia_descreve_fonte_amf() -> None:
+    """proveniencia() reflete a vintage da RenunciaFiscal e a natureza estimativa LDO."""
+    from gap_tributario.models import Proveniencia, RenunciaFiscal
+
+    renuncia = RenunciaFiscal(
+        ano=2022,
+        total=Decimal("2182.13"),
+        por_modalidade={"Crédito Presumido": Decimal("1268.01")},
+        vintage="LDO-2022",
+    )
+    prov = AmfRenunciaReader().proveniencia(renuncia, "2026-06-08")
+
+    assert isinstance(prov, Proveniencia)
+    assert "Renúncia" in prov.variavel
+    assert "AMF" in prov.origem
+    assert "LDO-2022" in prov.fonte
+    assert prov.data_extracao == "2026-06-08"
+    assert "estimativa" in prov.observacoes.lower()

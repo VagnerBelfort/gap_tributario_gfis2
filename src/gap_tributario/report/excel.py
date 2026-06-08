@@ -14,12 +14,29 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import xlsxwriter
 
 if TYPE_CHECKING:
-    from gap_tributario.models import AppConfig, DadosVRR, DecomposicaoGap, ResultadoGap
+    from gap_tributario.models import (
+        AppConfig,
+        DadosVRR,
+        DecomposicaoGap,
+        Proveniencia,
+        ResultadoGap,
+    )
+
+# Caveats gerais de cobertura/metodologia exibidos no bloco de proveniência
+# (compartilhados com o relatório PDF — ver report/pdf.py _CAVEATS_COBERTURA).
+_CAVEATS_COBERTURA = (
+    "VAB (IMESC) cobre a partir de 2021; anos anteriores usam a cascata de "
+    "fallback (IBGE SIDRA 5938, com lag de ~2 anos).",
+    "A renúncia fiscal (AMF Tabela 7) é estimativa prospectiva da LDO; "
+    "o policy gap herda essa natureza estimativa.",
+    "A alíquota modal do ICMS-MA passou de 18% para 20% em 2023 "
+    "(Lei Estadual 11.867/2022); mudanças mid-year não são suportadas.",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +116,7 @@ class ExcelReport:
         config: "AppConfig",
         caminho_saida: Path,
         decomposicao: "Optional[DecomposicaoGap]" = None,
+        proveniencias: "Optional[List[Proveniencia]]" = None,
     ) -> Path:
         """Gera o relatório Excel.
 
@@ -108,6 +126,7 @@ class ExcelReport:
             config: AppConfig com a configuração da aplicação
             caminho_saida: Diretório de saída para o arquivo Excel
             decomposicao: Decomposição policy/compliance (opcional, quando há renúncia)
+            proveniencias: Lista de Proveniencia por variável (opcional)
 
         Returns:
             Path para o arquivo Excel gerado
@@ -127,7 +146,7 @@ class ExcelReport:
         arquivo = caminho_saida / nome_arquivo
 
         try:
-            self._gerar_workbook(resultado, config, arquivo, decomposicao)
+            self._gerar_workbook(resultado, config, arquivo, decomposicao, proveniencias)
         except OSError as e:
             raise OSError(f"Não foi possível escrever o arquivo de saída '{arquivo}': {e}") from e
 
@@ -142,6 +161,7 @@ class ExcelReport:
         config: "AppConfig",
         arquivo: Path,
         decomposicao: "Optional[DecomposicaoGap]" = None,
+        proveniencias: "Optional[List[Proveniencia]]" = None,
     ) -> None:
         """Cria o workbook Excel com todas as seções."""
         workbook = xlsxwriter.Workbook(str(arquivo))
@@ -386,6 +406,33 @@ class ExcelReport:
             linha += 1
 
         linha += 1
+
+        # === 4. PROVENIÊNCIA DAS FONTES ===
+        if proveniencias:
+            ws.merge_range(linha, 0, linha, 1, "4. Proveniência das Fontes", fmt_secao)
+            linha += 1
+
+            for i, p in enumerate(proveniencias):
+                fmt_l = fmt_label if i % 2 == 0 else fmt_label_par
+                fmt_v = fmt_valor if i % 2 == 0 else fmt_linha_par
+                ws.write(linha, 0, p.variavel, fmt_l)
+                ws.write(
+                    linha,
+                    1,
+                    f"{p.origem} | {p.fonte} | extração: {p.data_extracao}",
+                    fmt_v,
+                )
+                linha += 1
+                if p.observacoes:
+                    ws.merge_range(linha, 0, linha, 1, f"  {p.variavel}: {p.observacoes}")
+                    linha += 1
+
+            for caveat in _CAVEATS_COBERTURA:
+                ws.merge_range(linha, 0, linha, 1, f"• {caveat}")
+                linha += 1
+
+            linha += 1
+
         ws.merge_range(
             linha,
             0,

@@ -147,6 +147,23 @@ class DecomposicaoGap:
     compliance_negativo: bool = False  # True quando renúncia > gap (compliance < 0)
 
 
+@dataclass(frozen=True)
+class Proveniencia:
+    """Rastreabilidade de uma variável da fórmula VRR até a fonte que a produziu.
+
+    Cada variável (VAB, ICMS arrecadado, renúncia fiscal...) carrega a origem
+    (sistema/instituição), a fonte (documento/tabela específica), a data de
+    extração (ISO YYYY-MM-DD) e observações (caveats de cobertura/metodologia).
+    Renderizada no bloco de proveniência dos relatórios PDF e Excel.
+    """
+
+    variavel: str  # ex.: "VAB", "ICMS Arrecadado", "Renúncia Fiscal (ICMS)"
+    origem: str  # sistema/instituição: "IMESC", "SIGDEF", "AMF Tabela 7 (LDO/MA)"
+    fonte: str  # documento/tabela: "Relatório PIB Trimestral, Tabela 15"
+    data_extracao: str  # data de extração no formato ISO (YYYY-MM-DD)
+    observacoes: str = ""  # caveats de cobertura/metodologia
+
+
 @dataclass
 class ConfigAliquota:
     """Configuração de alíquota por período."""
