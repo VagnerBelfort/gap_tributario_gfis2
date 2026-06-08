@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import polars as pl
 
@@ -38,18 +38,55 @@ _TRIMESTRE_MESES = {
 # Fator de conversão: BRL (unidade) → R$ milhões
 _FATOR_MILHOES = Decimal("1000000")
 
+# Config (cwd-relative, mesmo padrão de config/aliquotas.yaml) dos capítulos NCM
+# em trânsito pelo Porto de Itaqui, excluídos das importações do MA.
+_NCM_TRANSITO_PADRAO = Path("config/ncm_transito.yaml")
+
+# Coluna de código NCM (8 dígitos) no export completo do ComexStat.
+_COL_NCM = "CO_NCM"
+
+
+def _carregar_capitulos_transito(path: Path = _NCM_TRANSITO_PADRAO) -> List[int]:
+    """Carrega os capítulos NCM de trânsito do YAML; lista vazia se ausente."""
+    if not path.exists():
+        logger.info(
+            "config de trânsito NCM ausente (%s); importações não serão filtradas por capítulo.",
+            path,
+        )
+        return []
+    import yaml  # noqa: PLC0415 — leve, só usado aqui
+
+    with path.open("r", encoding="utf-8") as f:
+        dados = yaml.safe_load(f) or {}
+    return [int(c) for c in dados.get("capitulos_transito", [])]
+
 
 class ComexExtractor:
     """Extrator de dados de comércio exterior do MDIC ComEx."""
 
-    def __init__(self, mdic_base_path: str) -> None:
+    def __init__(
+        self,
+        mdic_base_path: str,
+        capitulos_transito: Optional[Sequence[int]] = None,
+    ) -> None:
         """Inicializa o extrator com o caminho base dos CSVs MDIC.
 
         Args:
             mdic_base_path: Caminho para o diretório dos CSVs MDIC
                             (ex: ./mdic_comex/dados/)
+            capitulos_transito: Capítulos NCM (2 dígitos) a excluir das
+                            importações do MA (trânsito por Itaqui). Se None,
+                            carrega de config/ncm_transito.yaml. Lista vazia
+                            desliga o filtro.
         """
         self.mdic_base_path = mdic_base_path
+        capitulos = (
+            list(capitulos_transito)
+            if capitulos_transito is not None
+            else _carregar_capitulos_transito()
+        )
+        # Normaliza para strings de 2 dígitos (capítulo = 2 primeiros do NCM).
+        self.capitulos_transito = {f"{int(c):02d}" for c in capitulos}
 
     def _listar_csvs(self, tipo: str, ano: int) -> List[Path]:
         """Lista os arquivos CSV de um tipo (EXP ou IMP) para um ano.
@@ -75,6 +112,7 @@ class ComexExtractor:
         csvs: List[Path],
         tipo: str,
         periodo: PeriodoCalculo,
+        aplicar_filtro_ncm: bool = False,
     ) -> Decimal:
         """Lê os CSVs, filtra por UF=MA e período, e soma VL_FOB.
 
@@ -132,6 +170,30 @@ class ComexExtractor:
         if not periodo.is_anual:
             meses = _TRIMESTRE_MESES[periodo.trimestre]
             df_ma = df_ma.filter(pl.col("CO_MES").is_in(meses))
+
+        # Excluir capítulos NCM de trânsito (Itaqui) — só nas importações e só
+        # quando há a coluna CO_NCM (dado em nível de produto).
+        if aplicar_filtro_ncm and self.capitulos_transito and _COL_NCM in df_ma.columns:
+            capitulo = (
+                pl.col(_COL_NCM).cast(pl.Utf8).str.zfill(8).str.slice(0, 2)
+            )
+            antes = df_ma.height
+            df_ma = df_ma.filter(~capitulo.is_in(list(self.capitulos_transito)))
+            logger.info(
+                "Filtro NCM de trânsito (%s) aplicado em %s: %d → %d linhas (capítulos %s).",
+                tipo,
+                periodo.label,
+                antes,
+                df_ma.height,
+                sorted(self.capitulos_transito),
+            )
+        elif aplicar_filtro_ncm and self.capitulos_transito and _COL_NCM not in df_ma.columns:
+            logger.warning(
+                "Filtro NCM de trânsito solicitado mas coluna %s ausente nos CSVs %s; "
+                "importação NÃO filtrada (pode incluir trânsito por Itaqui).",
+                _COL_NCM,
+                tipo,
+            )
 
         # Somar VL_FOB
         soma_fob = df_ma.select(pl.col("VL_FOB").fill_null(0).sum()).item()
@@ -197,7 +259,9 @@ class ComexExtractor:
                 f"Baixe os dados em balanca.economia.gov.br."
             )
 
-        soma_imp_usd = self._ler_e_filtrar_csv(csvs_imp, "IMP", periodo)
+        soma_imp_usd = self._ler_e_filtrar_csv(
+            csvs_imp, "IMP", periodo, aplicar_filtro_ncm=True
+        )
 
         # Conversão USD → R$ milhões
         exportacoes_brl = (soma_exp_usd * ptax_media) / _FATOR_MILHOES
