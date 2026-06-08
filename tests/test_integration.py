@@ -107,12 +107,19 @@ def _pipeline_referencia(config_path: Path, output_path: Path, formato: str = "p
         "--formato",
     ] + formatos
 
+    # O golden permanece ancorado no GFIS2: o SIGDEF (fonte nº1) é forçado a cair
+    # via ExtractionError para que o fallback GFIS2 (_ICMS_REF = 10.917) prevaleça.
+    from gap_tributario.extractors.base import ExtractionError
+
     with patch(
         "gap_tributario.extractors.ptax.PTAXExtractor.extract",
         return_value=_PTAX_REF,
     ), patch(
         "gap_tributario.extractors.ibge.IBGEExtractor.extract",
         return_value=_VAB_REF,
+    ), patch(
+        "gap_tributario.extractors.sigdef.SigdefIcmsExtractor.extract",
+        side_effect=ExtractionError("SIGDEF desativado no golden — usa GFIS2"),
     ), patch(
         "gap_tributario.extractors.arrecadacao.ArrecadacaoExtractor.extract",
         return_value=_ICMS_REF,
@@ -257,12 +264,19 @@ def test_pipeline_com_fixtures_locais_e_mocks_api(config_integracao, saida_dir):
     - IBGEExtractor mockado → VAB = 124.859 milhões R$
     - PTAXExtractor mockado → PTAX = 5.22 R$/USD
     """
+    # SIGDEF forçado a cair para que o ArrecadacaoExtractor (fixture GFIS2) seja
+    # exercitado — que é o propósito deste teste.
+    from gap_tributario.extractors.base import ExtractionError
+
     with patch(
         "gap_tributario.extractors.ptax.PTAXExtractor.extract",
         return_value=_PTAX_REF,
     ), patch(
         "gap_tributario.extractors.ibge.IBGEExtractor.extract",
         return_value=_VAB_REF,
+    ), patch(
+        "gap_tributario.extractors.sigdef.SigdefIcmsExtractor.extract",
+        side_effect=ExtractionError("SIGDEF desativado — exercita fixture GFIS2"),
     ):
         with patch(
             "sys.argv",

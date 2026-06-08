@@ -156,6 +156,7 @@ def run() -> int:
     from gap_tributario.extractors.ibge import IBGEExtractor
     from gap_tributario.extractors.imesc_pib import ImescPibExtractor
     from gap_tributario.extractors.ptax import PTAXExtractor
+    from gap_tributario.extractors.sigdef import SigdefIcmsExtractor
     from gap_tributario.extractors.siscomex import SiscomexExtractor
     from gap_tributario.models import DadosVRR, PeriodoCalculo
     from gap_tributario.report.excel import ExcelReport
@@ -227,10 +228,21 @@ def run() -> int:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
 
-    # 3c. GFIS2 Parquet — ICMS arrecadado
+    # 3c. ICMS arrecadado — cascata: SIGDEF (parquet limpo) → GFIS2 Parquet
     try:
-        icms_arrecadado = ArrecadacaoExtractor(str(config.parquet_base_path)).extract(periodo)
-        logger.info("ICMS arrecadado %s: R$ %s milhões", periodo.label, icms_arrecadado)
+        try:
+            icms_arrecadado = SigdefIcmsExtractor().extract(periodo)
+            logger.info("ICMS arrecadado %s (SIGDEF): R$ %s milhões", periodo.label, icms_arrecadado)
+        except ExtractionError as exc_sigdef:
+            logger.info(
+                "SIGDEF indisponível para %s (%s). Caindo para GFIS2.",
+                periodo.label,
+                exc_sigdef,
+            )
+            icms_arrecadado = ArrecadacaoExtractor(str(config.parquet_base_path)).extract(periodo)
+            logger.info(
+                "ICMS arrecadado %s (GFIS2 fallback): R$ %s milhões", periodo.label, icms_arrecadado
+            )
     except ExtractionError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2

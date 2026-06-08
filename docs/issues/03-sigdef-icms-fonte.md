@@ -21,12 +21,12 @@ SIGDEF é primário para todos os demais períodos.
 
 ## Acceptance criteria
 
-- [ ] `SigdefParser` produz parquet limpo com ICMS total correto (MA 2022 ≈ 11.494 mi; nacional 2022 ≈ 691 bi).
-- [ ] Leitura é por **posição** (col. 21), não por rótulo.
-- [ ] `SigdefIcmsExtractor` retorna ICMS por período a partir do parquet limpo.
-- [ ] Golden 2022 continua ancorado em GFIS2 e **verde**.
-- [ ] Testes de `SigdefParser` com fixture pequena reproduzindo o offset; cobertura ≥85%.
-- [ ] `pytest` verde, `ruff` limpo, `MotorVRR` intocado.
+- [x] `SigdefParser` produz parquet limpo com ICMS total correto (MA 2022 = 11.494,59 mi; nacional 2022 ≈ 691 bi, validado na sanidade).
+- [x] Leitura é por **posição** (col. 21), não por rótulo.
+- [x] `SigdefIcmsExtractor` retorna ICMS por período a partir do parquet limpo (mês→período; cobertura 1997-2023).
+- [x] Golden 2022 continua ancorado em GFIS2 e **verde** (SIGDEF forçado a cair via ExtractionError nos testes do golden).
+- [x] Testes de `SigdefParser` com fixture pequena reproduzindo o offset; cobertura **100%**.
+- [x] `pytest` verde (287 passed), `ruff` limpo, `MotorVRR` intocado.
 
 ## Blocked by
 

@@ -30,10 +30,13 @@ exportacoes:
     - manual          # --exp-manual
 
 icms_arrecadado:
-  # NOTA: SIGDEF entra como nº1 na issue #3 (golden permanece ancorado no GFIS2
-  # até a revisão metodológica dos ~5%).
+  # SIGDEF (parquet limpo, ICMS total na posição 21 do export — fix de offset).
+  # Cobertura 1997-2023. Anos >2023 caem para o GFIS2. O teste golden 2022
+  # permanece ancorado no GFIS2 (SIGDEF daria 11.494 vs golden 10.917, ~5%;
+  # reconciliação fora de escopo).
   cascata:
-    - gfis2_parquet
+    - sigdef          # SigdefIcmsExtractor (fonte nº1)
+    - gfis2_parquet   # ArrecadacaoExtractor (fallback, anos >2023)
 
 ptax:
   cascata:
