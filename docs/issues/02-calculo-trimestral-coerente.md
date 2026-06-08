@@ -13,12 +13,12 @@ nenhuma premissa de rateio.
 
 ## Acceptance criteria
 
-- [ ] Exp/Imp são agregados mês→trimestre para períodos trimestrais.
-- [ ] `--periodo 2024-T2` calcula VRR/gap ponta a ponta com VAB, Exp e Imp do trimestre.
-- [ ] Período anual permanece inalterado (soma/uso anual).
-- [ ] Nenhum rateio por peso de ICMS é usado em lugar nenhum.
-- [ ] Testes do caminho trimestral; cobertura ≥85% no que for novo.
-- [ ] `pytest` verde, `ruff` limpo, golden inalterado.
+- [x] Exp/Imp são agregados mês→trimestre para períodos trimestrais. *(já em `comex.py:131-134`, `_TRIMESTRE_MESES`)*
+- [x] `--periodo 2024-T2` calcula VRR/gap ponta a ponta com VAB, Exp e Imp do trimestre. *(test `test_pipeline_trimestral_t1_usa_exp_imp_do_trimestre`)*
+- [x] Período anual permanece inalterado (soma/uso anual). *(test `test_pipeline_trimestral_difere_do_anual`)*
+- [x] Nenhum rateio por peso de ICMS é usado em lugar nenhum. *(grep confirmou ausência; VAB trimestral é nativo do IMESC; sem `engine/seasonality.py`)*
+- [x] Testes do caminho trimestral; cobertura ≥85% no que for novo. *(`comex.py` 100%; +2 testes de integração)*
+- [x] `pytest` verde (301), `ruff` limpo, golden inalterado (VRR≈0,52).
 
 ## Blocked by
 

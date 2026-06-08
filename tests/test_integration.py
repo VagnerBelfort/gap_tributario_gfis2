@@ -355,6 +355,109 @@ def test_idempotencia_execucoes_repetidas_produzem_resultado_identico(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Teste 7: Caminho trimestral end-to-end — Exp/Imp do próprio trimestre (#2)
+# ---------------------------------------------------------------------------
+
+# PTAX simples para o caminho trimestral, alinhada às fixtures de test_comex.
+_PTAX_TRI = Decimal("5.0")
+
+# Agregação mês→trimestre das fixtures EXP_2022.csv / IMP_2022.csv (USD × 5.0 / 1M):
+#   EXP T1 (Jan-Mar) = 300.000 USD → 1.5 M R$ ; EXP anual = 1.300.000 → 6.5 M R$
+#   IMP T1 (Jan-Mar) = 150.000 USD → 0.75 M R$; IMP anual =   700.000 → 3.5 M R$
+_EXP_T1_TRI = Decimal("1.5")
+_IMP_T1_TRI = Decimal("0.75")
+_EXP_ANUAL_TRI = Decimal("6.5")
+_IMP_ANUAL_TRI = Decimal("3.5")
+
+
+def _capturar_dados_vrr(config_path: Path, output_path: Path, periodo: str) -> tuple:
+    """Roda o pipeline real para `periodo` e captura o DadosVRR entregue ao motor.
+
+    Exercita o ComexExtractor REAL contra as fixtures CSV (com CO_MES), provando a
+    agregação mês→trimestre end-to-end. Apenas PTAX, VAB (IMESC) e ICMS (SIGDEF→GFIS2)
+    são mockados para determinismo; Exp/Imp vêm do extrator de verdade.
+    """
+    from gap_tributario.engine.vrr import MotorVRR
+    from gap_tributario.extractors.base import ExtractionError
+
+    capturado: dict = {}
+    original_calcular = MotorVRR.calcular
+
+    def mock_calcular(self, dados):  # type: ignore[no-untyped-def]
+        capturado["dados"] = dados
+        return original_calcular(self, dados)
+
+    argv = [
+        "gap-tributario",
+        "--periodo",
+        periodo,
+        "--config",
+        str(config_path),
+        "--saida",
+        str(output_path),
+        "--formato",
+        "pdf",
+    ]
+
+    with patch(
+        "gap_tributario.extractors.ptax.PTAXExtractor.extract",
+        return_value=_PTAX_TRI,
+    ), patch(
+        "gap_tributario.extractors.imesc_pib.ImescPibExtractor.extract",
+        return_value=_VAB_REF,
+    ), patch(
+        "gap_tributario.extractors.sigdef.SigdefIcmsExtractor.extract",
+        side_effect=ExtractionError("SIGDEF desativado — usa GFIS2"),
+    ), patch(
+        "gap_tributario.extractors.arrecadacao.ArrecadacaoExtractor.extract",
+        return_value=_ICMS_REF,
+    ), patch.object(
+        MotorVRR, "calcular", mock_calcular
+    ), patch("sys.argv", argv):
+        codigo = run()
+
+    return codigo, capturado.get("dados")
+
+
+def test_pipeline_trimestral_t1_usa_exp_imp_do_trimestre(config_integracao, saida_dir):
+    """`--periodo 2022-T1` calcula ponta a ponta com Exp/Imp agregados do trimestre.
+
+    O ComexExtractor real lê as fixtures mensais e agrega Jan-Mar; o pipeline entrega
+    ao motor VRR os valores do PRÓPRIO trimestre (1.5 / 0.75), não o total anual.
+    Nenhum rateio é aplicado — VAB trimestral é nativo do IMESC.
+    """
+    codigo, dados = _capturar_dados_vrr(config_integracao, saida_dir, "2022-T1")
+
+    assert codigo == 0
+    assert dados is not None
+    assert dados.periodo.trimestre == 1
+    assert dados.exportacoes_brl == _EXP_T1_TRI
+    assert dados.importacoes_brl == _IMP_T1_TRI
+
+    # Relatório do trimestre é gerado com o label trimestral no nome do arquivo.
+    assert (saida_dir / "gap_icms_2022-T1.pdf").exists()
+
+
+def test_pipeline_trimestral_difere_do_anual(config_integracao, saida_dir):
+    """O período anual permanece inalterado: Exp/Imp do ano inteiro (6.5 / 3.5).
+
+    Garante que a trimestralização é específica do trimestre e que o caminho anual
+    não regrediu — T1 (1.5/0.75) ≠ anual (6.5/3.5) pelo mesmo pipeline e fixtures.
+    """
+    _, dados_t1 = _capturar_dados_vrr(config_integracao, saida_dir, "2022-T1")
+    codigo_anual, dados_anual = _capturar_dados_vrr(config_integracao, saida_dir, "2022")
+
+    assert codigo_anual == 0
+    assert dados_anual.periodo.is_anual
+    assert dados_anual.exportacoes_brl == _EXP_ANUAL_TRI
+    assert dados_anual.importacoes_brl == _IMP_ANUAL_TRI
+
+    # O trimestre é estritamente menor que o ano (sem rateio, agregação real).
+    assert dados_t1.exportacoes_brl < dados_anual.exportacoes_brl
+    assert dados_t1.importacoes_brl < dados_anual.importacoes_brl
+
+
 def test_pipeline_subprocess_ptax_vab_manuais_exit_0(config_integracao, saida_dir):
     """Pipeline via subprocess com --ptax-manual e --vab-manual retorna exit(0).
 
