@@ -20,15 +20,15 @@ VRR. Coluna a usar: **VAB** (`PIB = VAB + Impostos/IPLS`).
 
 ## Acceptance criteria
 
-- [ ] `ImescPibExtractor` lê os dados transcritos da Tabela 15 e retorna VAB por período.
-- [ ] `--periodo 2024` (antes impossível por lag) calcula com VAB real do IMESC.
-- [ ] `--periodo 2022` produz VAB = 124.859 (soma dos 4 trimestres) → **golden 2022 segue verde** (VRR 0,518 ± 0,002).
-- [ ] `--periodo 2022-T1` retorna VAB = 25.871 (trimestre direto, sem rateio).
-- [ ] `config/fontes.yaml` define a cascata de VAB: IMESC → SIDRA → IPEADATA → BCB Focus → AutoARIMA → `--vab-manual`.
-- [ ] Ano <2021 cai corretamente para o fallback SIDRA.
-- [ ] Testes de `ImescPibExtractor` (anual=Σ4tri; trimestral direto; ano fora de cobertura sinaliza fallback). Cobertura ≥85% no módulo novo.
-- [ ] `pytest` verde, `ruff check src/` limpo.
-- [ ] `MotorVRR` (`engine/vrr.py`) inalterado.
+- [x] `ImescPibExtractor` lê os dados transcritos da Tabela 15 e retorna VAB por período.
+- [x] `--periodo 2024` (antes impossível por lag) calcula com VAB real do IMESC. *(144.220)*
+- [x] `--periodo 2022` produz VAB = 124.859 (soma dos 4 trimestres) → **golden 2022 segue verde** (VRR 0,518 ± 0,002).
+- [x] `--periodo 2022-T1` retorna VAB = 25.871 (trimestre direto, sem rateio).
+- [x] `config/fontes.yaml` define a cascata de VAB: IMESC → SIDRA → IPEADATA → BCB Focus → AutoARIMA → `--vab-manual`.
+- [x] Ano <2021 cai corretamente para o fallback SIDRA. *(ExtractionError → IBGEExtractor)*
+- [x] Testes de `ImescPibExtractor` (anual=Σ4tri; trimestral direto; ano fora de cobertura sinaliza fallback). Cobertura 100% no módulo.
+- [x] `pytest` verde, `ruff check src/` limpo.
+- [x] `MotorVRR` (`engine/vrr.py`) inalterado.
 
 ## Blocked by
 
