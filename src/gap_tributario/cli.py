@@ -154,6 +154,7 @@ def run() -> int:
     from gap_tributario.extractors.base import ExtractionError
     from gap_tributario.extractors.comex import ComexExtractor
     from gap_tributario.extractors.ibge import IBGEExtractor
+    from gap_tributario.extractors.imesc_pib import ImescPibExtractor
     from gap_tributario.extractors.ptax import PTAXExtractor
     from gap_tributario.extractors.siscomex import SiscomexExtractor
     from gap_tributario.models import DadosVRR, PeriodoCalculo
@@ -205,14 +206,23 @@ def run() -> int:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
 
-    # 3b. IBGE SIDRA — Valor Adicionado Bruto
+    # 3b. VAB — cascata: --vab-manual → IMESC PIB Trimestral → IBGE SIDRA
     try:
         if args.vab_manual is not None:
             vab = Decimal(str(args.vab_manual))
             logger.info("VAB manual (override): R$ %s milhões", vab)
         else:
-            vab = IBGEExtractor().extract(periodo)
-            logger.info("VAB MA %s: R$ %s milhões", periodo.label, vab)
+            try:
+                vab = ImescPibExtractor().extract(periodo)
+                logger.info("VAB MA %s (IMESC): R$ %s milhões", periodo.label, vab)
+            except ExtractionError as exc_imesc:
+                logger.info(
+                    "IMESC indisponível para %s (%s). Caindo para IBGE SIDRA.",
+                    periodo.label,
+                    exc_imesc,
+                )
+                vab = IBGEExtractor().extract(periodo)
+                logger.info("VAB MA %s (IBGE fallback): R$ %s milhões", periodo.label, vab)
     except ExtractionError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2

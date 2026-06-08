@@ -1,0 +1,26 @@
+# Relatório Especializado do PIB Trimestral do Maranhão — IMESC / Governo do MA
+# Fonte: docs/Relatorio-Especializado-do-PIB-Trimestral-1.pdf, Tabela 15 (Valores correntes, R$ 1.000.000)
+# Transcrição da camada de texto do PDF (4º trimestre de 2025, mar/2026).
+# Valores em R$ milhões, nominais (preços correntes). Identidade: pib = vab + impostos.
+# Validação-âncora: soma do VAB de 2022 (T1..T4) = 124.859 (= golden MA 2022).
+ano,trimestre,vab,impostos,pib
+2021,1,23897,2679,26576
+2021,2,29782,2983,32764
+2021,3,27404,4254,31657
+2021,4,29147,4835,33983
+2022,1,25871,3051,28922
+2022,2,33980,3624,37604
+2022,3,31834,3979,35813
+2022,4,33174,4276,37450
+2023,1,29723,2726,32448
+2023,2,36296,3495,39791
+2023,3,33797,4060,37857
+2023,4,35618,3513,39130
+2024,1,32053,4541,36593
+2024,2,38289,5490,43779
+2024,3,36410,6635,43045
+2024,4,37468,7567,45035
+2025,1,34757,5257,40014
+2025,2,42184,6118,48303
+2025,3,39643,7443,47086
+2025,4,39676,8548,48224

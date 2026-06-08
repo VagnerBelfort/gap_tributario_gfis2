@@ -66,6 +66,14 @@ def _mock_extractors(
             return_value=ptax,
         )
     )
+    # IMESC é a fonte nº1 da cascata de VAB; IBGE é o fallback. Ambos mockados
+    # com o mesmo valor de referência para controlar o VAB nos testes do CLI.
+    stack.enter_context(
+        patch(
+            "gap_tributario.extractors.imesc_pib.ImescPibExtractor.extract",
+            return_value=vab,
+        )
+    )
     stack.enter_context(
         patch(
             "gap_tributario.extractors.ibge.IBGEExtractor.extract",
