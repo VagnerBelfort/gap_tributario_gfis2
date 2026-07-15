@@ -1,0 +1,43 @@
+# Ordem das cascatas de fontes de dados — Calculadora de Gap Tributário ICMS-MA
+#
+# Cada variável da fórmula VRR tem uma cascata de fontes em ordem de prioridade.
+# A primeira fonte que responde com sucesso vence; ExtractionError leva à próxima.
+#
+# NOTA: hoje a ordem é orquestrada em cli.py. Este arquivo documenta a ordem
+# vigente e é o ponto de extensão para torná-la configurável sem mexer no código.
+
+vab:
+  # IMESC: Relatório PIB Trimestral do MA, Tabela 15 (valores correntes).
+  # Cobertura 2021-2025. VAB direto (sem fator PIB×0,8932), trimestral nativo.
+  # Anos <2021 caem para o IBGE SIDRA.
+  cascata:
+    - imesc          # ImescPibExtractor (fonte nº1)
+    - ibge_sidra     # IBGEExtractor (fallback, anos <2021)
+    - ipeadata       # (planejado)
+    - bcb_focus      # (planejado)
+    - autoarima      # (planejado)
+    - manual         # --vab-manual
+
+importacoes:
+  cascata:
+    - siscomex_oracle
+    - mdic_comex      # com filtro NCM cap.27/31 (config/ncm_transito.yaml)
+    - manual          # --imp-manual
+
+exportacoes:
+  cascata:
+    - mdic_comex
+    - manual          # --exp-manual
+
+icms_arrecadado:
+  # SIGDEF (parquet limpo, ICMS total na posição 21 do export — fix de offset).
+  # Cobertura 1997-2023. Anos >2023 caem para o GFIS2. O teste golden 2022
+  # permanece ancorado no GFIS2 (SIGDEF daria 11.494 vs golden 10.917, ~5%;
+  # reconciliação fora de escopo).
+  cascata:
+    - sigdef          # SigdefIcmsExtractor (fonte nº1)
+    - gfis2_parquet   # ArrecadacaoExtractor (fallback, anos >2023)
+
+ptax:
+  cascata:
+    - bcb_olinda

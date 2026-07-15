@@ -1,0 +1,21 @@
+# Capítulos NCM em trânsito pelo Porto de Itaqui (não-domicílio fiscal do MA).
+#
+# O filtro SG_UF_NCM == "MA" do MDIC ComEx atribui ao Maranhão mercadorias que
+# apenas DESEMBARAÇAM em Itaqui mas seguem para outros estados (Tocantins, Pará,
+# Piauí...). Isso infla a importação do MA. A solução metodologicamente correta é
+# o Siscomex Oracle com a UF de destino/consumo (TDS_UF_IMPORTADOR); enquanto o
+# Oracle não está acessível, excluímos os capítulos NCM dominados por trânsito.
+#
+# Empírico (IMP 2022 MA, ComexStat): das ~US$ 7,5 bi atribuídas ao MA,
+#   cap.27 (combustíveis) = 69,4% e cap.31 (fertilizantes) = 22,1% — quase tudo
+#   trânsito. O resíduo (~8,5%) é a importação não-combustível do MA.
+#
+# IMPORTANTE: este é um ATALHO conservador. Pode remover combustível/fertilizante
+# efetivamente consumido no MA (subestima a importação → enviesa o gap p/ baixo).
+# Aplica-se SOMENTE às importações; as exportações não sofrem do trânsito.
+#
+# Capítulo = 2 primeiros dígitos do código NCM (8 dígitos).
+
+capitulos_transito:
+  - 27   # Combustíveis minerais, óleos minerais (petróleo e derivados)
+  - 31   # Adubos e fertilizantes

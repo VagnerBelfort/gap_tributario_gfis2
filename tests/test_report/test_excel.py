@@ -189,6 +189,34 @@ def test_campos_obrigatorios_no_conteudo(resultado_2022, config_test, tmp_path):
     assert "VAB" in texto
 
 
+def test_decomposicao_no_conteudo(resultado_2022, config_test, tmp_path):
+    """Com decomposição, a planilha exibe policy/compliance, modalidade e caveat LDO."""
+    from gap_tributario.models import DecomposicaoGap, RenunciaFiscal
+
+    decomposicao = DecomposicaoGap(
+        gap_total=Decimal("10148.22"),
+        policy_gap=Decimal("2182.13"),
+        compliance_gap=Decimal("7966.09"),
+        policy_pct=Decimal("21.50"),
+        compliance_pct=Decimal("78.50"),
+        renuncia=RenunciaFiscal(
+            ano=2022,
+            total=Decimal("2182.13"),
+            por_modalidade={"Crédito Presumido": Decimal("1268.01")},
+            vintage="LDO-2022",
+        ),
+    )
+
+    saida = tmp_path / "relatorios"
+    arquivo = ExcelReport().gerar(resultado_2022, None, config_test, saida, decomposicao)
+    texto = _extrair_texto_xlsx(arquivo)
+
+    assert "Policy Gap" in texto
+    assert "Compliance Gap" in texto
+    assert "Crédito Presumido" in texto
+    assert "LDO-2022" in texto
+
+
 def test_vrr_referencia_no_conteudo(resultado_2022, config_test, tmp_path):
     """VRR de referência MA 2022 ≈ 0,5183 está presente na planilha."""
     saida = tmp_path / "relatorios"
@@ -228,3 +256,26 @@ def test_ioerror_quando_caminho_invalido(resultado_2022, config_test, tmp_path):
     excel = ExcelReport()
     with pytest.raises(IOError):
         excel.gerar(resultado_2022, None, config_test, caminho_invalido)
+
+
+def test_proveniencia_no_conteudo(resultado_2022, config_test, tmp_path):
+    """Com proveniências, o Excel mostra a seção com origem/fonte/data e caveats."""
+    from gap_tributario.models import Proveniencia
+
+    saida = tmp_path / "relatorios"
+    provs = [
+        Proveniencia(
+            variavel="VAB",
+            origem="IMESC",
+            fonte="Relatório PIB Trimestral, Tabela 15",
+            data_extracao="2026-06-08",
+            observacoes="Cobertura 2021–2025.",
+        ),
+    ]
+    arquivo = ExcelReport().gerar(resultado_2022, None, config_test, saida, None, provs)
+
+    texto = _extrair_texto_xlsx(arquivo)
+    assert "Proveni" in texto
+    assert "IMESC" in texto
+    assert "2026-06-08" in texto
+    assert "2021" in texto  # caveat VAB

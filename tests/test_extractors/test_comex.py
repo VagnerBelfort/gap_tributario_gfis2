@@ -458,3 +458,82 @@ def test_extract_combina_multiplos_csvs(tmp_path):
 
     # 4 registros × 100.000 USD × 1.0 PTAX / 1.000.000 = 0.4 M R$
     assert exp_brl == Decimal("0.4")
+
+
+# ---- Testes do filtro NCM de trânsito (cap.27/31 — Porto de Itaqui) ----
+
+
+@pytest.fixture
+def extractor_ncm(tmp_path: Path) -> ComexExtractor:
+    """Extrator com IMP em nível NCM (cap.27/31 a excluir) e EXP sem NCM.
+
+    IMP_2022.csv (com coluna CO_NCM):
+      - cap.27 combustível (transito): 27101259 = 6.000.000 USD  → EXCLUIR
+      - cap.31 fertilizante (transito): 31021000 = 3.000.000 USD → EXCLUIR
+      - cap.84 máquina (real MA):       84715010 = 1.000.000 USD → MANTER
+    IMP MA esperado (filtrado) = 1.000.000 USD × 5.0 / 1e6 = 5.0 M R$.
+    EXP_2022.csv sem CO_NCM → não filtra (1 linha MA = 2.000.000 USD → 10.0 M R$).
+    """
+    csv_dir = tmp_path / "mdic_ncm"
+    csv_dir.mkdir()
+    imp = (
+        "CO_ANO;CO_MES;CO_NCM;SG_UF_NCM;VL_FOB\n"
+        "2022;1;27101259;MA;6000000\n"   # cap.27 combustível — trânsito
+        "2022;2;31021000;MA;3000000\n"   # cap.31 fertilizante — trânsito
+        "2022;3;84715010;MA;1000000\n"   # cap.84 — importação real do MA
+        "2022;1;27101259;SP;9000000\n"   # outra UF — ignorado pelo filtro de UF
+    )
+    exp = (
+        "CO_ANO;CO_MES;SG_UF_NCM;VL_FOB\n"
+        "2022;1;MA;2000000\n"
+    )
+    (csv_dir / "IMP_2022.csv").write_text(imp, encoding="latin-1")
+    (csv_dir / "EXP_2022.csv").write_text(exp, encoding="latin-1")
+    return ComexExtractor(mdic_base_path=str(csv_dir), capitulos_transito=[27, 31])
+
+
+def test_imp_exclui_capitulos_de_transito(extractor_ncm):
+    """Importação exclui cap.27 e cap.31 quando há coluna CO_NCM."""
+    _, imp_brl = extractor_ncm.extract(PeriodoCalculo(ano=2022), PTAX_MOCK)
+    assert imp_brl == Decimal("5.0")  # só o cap.84 (1.000.000 × 5.0 / 1e6)
+
+
+def test_exp_nao_e_filtrada_por_ncm(extractor_ncm):
+    """Exportação não sofre filtro de trânsito (sem CO_NCM, e trânsito é import-only)."""
+    exp_brl, _ = extractor_ncm.extract(PeriodoCalculo(ano=2022), PTAX_MOCK)
+    assert exp_brl == Decimal("10.0")  # 2.000.000 × 5.0 / 1e6, sem exclusão
+
+
+def test_sem_capitulos_transito_nao_filtra(tmp_path):
+    """Sem capítulos configurados, a importação não é filtrada mesmo com CO_NCM."""
+    csv_dir = tmp_path / "mdic_nofilter"
+    csv_dir.mkdir()
+    imp = (
+        "CO_ANO;CO_MES;CO_NCM;SG_UF_NCM;VL_FOB\n"
+        "2022;1;27101259;MA;6000000\n"
+        "2022;3;84715010;MA;1000000\n"
+    )
+    exp = "CO_ANO;CO_MES;SG_UF_NCM;VL_FOB\n2022;1;MA;2000000\n"
+    (csv_dir / "IMP_2022.csv").write_text(imp, encoding="latin-1")
+    (csv_dir / "EXP_2022.csv").write_text(exp, encoding="latin-1")
+    extractor = ComexExtractor(mdic_base_path=str(csv_dir), capitulos_transito=[])
+    _, imp_brl = extractor.extract(PeriodoCalculo(ano=2022), PTAX_MOCK)
+    assert imp_brl == Decimal("35.0")  # 7.000.000 × 5.0 / 1e6 (nada excluído)
+
+
+def test_capitulos_transito_default_carrega_do_yaml(tmp_path):
+    """Sem passar capitulos_transito, carrega config/ncm_transito.yaml (cap.27/31)."""
+    csv_dir = tmp_path / "mdic_default"
+    csv_dir.mkdir()
+    imp = (
+        "CO_ANO;CO_MES;CO_NCM;SG_UF_NCM;VL_FOB\n"
+        "2022;1;27101259;MA;6000000\n"
+        "2022;3;84715010;MA;1000000\n"
+    )
+    exp = "CO_ANO;CO_MES;SG_UF_NCM;VL_FOB\n2022;1;MA;2000000\n"
+    (csv_dir / "IMP_2022.csv").write_text(imp, encoding="latin-1")
+    (csv_dir / "EXP_2022.csv").write_text(exp, encoding="latin-1")
+    # Não passa capitulos_transito → deve usar o YAML do projeto (27, 31).
+    extractor = ComexExtractor(mdic_base_path=str(csv_dir))
+    _, imp_brl = extractor.extract(PeriodoCalculo(ano=2022), PTAX_MOCK)
+    assert imp_brl == Decimal("5.0")  # cap.27 excluído pelo default

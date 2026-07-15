@@ -1,0 +1,28 @@
+# Renúncia fiscal de ICMS-MA — AMF Tabela 7 (LDO/MA, fonte BI-Oracle-SEFAZ).
+# Materializado dos 3 xlsx da AMF; vintage por ano (LDO-2022/2025/2026).
+# valor_brl em R$ unitário; modalidades: Créd.Presumido, Isenção, Redução BC.
+ano,vintage,modalidade,valor_brl
+2022,LDO-2022,Crédito Presumido,1268007848
+2022,LDO-2022,Isenção,520062369
+2022,LDO-2022,Redução de Base de Cálculo,394061121
+2023,LDO-2022,Crédito Presumido,1309218103
+2023,LDO-2022,Isenção,536964396
+2023,LDO-2022,Redução de Base de Cálculo,406868108
+2024,LDO-2022,Crédito Presumido,1351767692
+2024,LDO-2022,Isenção,554415739
+2024,LDO-2022,Redução de Base de Cálculo,420091321
+2025,LDO-2025,Crédito Presumido,1378082976
+2025,LDO-2025,Isenção,565208723
+2025,LDO-2025,Redução de Base de Cálculo,428269370
+2026,LDO-2026,Crédito Presumido,1450707948
+2026,LDO-2026,Isenção,594995223
+2026,LDO-2026,Redução de Base de Cálculo,450839166
+2027,LDO-2026,Crédito Presumido,1528320824
+2027,LDO-2026,Isenção,626827467
+2027,LDO-2026,Redução de Base de Cálculo,474959061
+2028,LDO-2026,Crédito Presumido,1587925336
+2028,LDO-2026,Isenção,651273739
+2028,LDO-2026,Redução de Base de Cálculo,493482465
+2029,LDO-2026,Crédito Presumido,1643502723
+2029,LDO-2026,Isenção,674068320
+2029,LDO-2026,Redução de Base de Cálculo,510754351

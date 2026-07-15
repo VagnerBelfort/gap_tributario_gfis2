@@ -145,18 +145,23 @@ def run() -> int:
     logger.info("=== Calculadora Gap Tributário ICMS-MA ===")
 
     # Imports lazy para não impactar tempo de --help/--version
+    from datetime import date
     from decimal import Decimal
     from pathlib import Path
 
     from gap_tributario.config import load_config
+    from gap_tributario.engine.gap_decomposition import decompor_gap
     from gap_tributario.engine.vrr import MotorVRR
+    from gap_tributario.extractors.amf_renuncia import AmfRenunciaReader
     from gap_tributario.extractors.arrecadacao import ArrecadacaoExtractor
     from gap_tributario.extractors.base import ExtractionError
     from gap_tributario.extractors.comex import ComexExtractor
     from gap_tributario.extractors.ibge import IBGEExtractor
+    from gap_tributario.extractors.imesc_pib import ImescPibExtractor
     from gap_tributario.extractors.ptax import PTAXExtractor
+    from gap_tributario.extractors.sigdef import SigdefIcmsExtractor
     from gap_tributario.extractors.siscomex import SiscomexExtractor
-    from gap_tributario.models import DadosVRR, PeriodoCalculo
+    from gap_tributario.models import DadosVRR, PeriodoCalculo, Proveniencia
     from gap_tributario.report.excel import ExcelReport
     from gap_tributario.report.pdf import PDFReport
 
@@ -193,34 +198,106 @@ def run() -> int:
 
     # === Estágio 3: EXTRACT ===
 
+    # Proveniência: cada variável registra a fonte que efetivamente venceu a
+    # cascata (issue #5). A data de extração é stampada uma única vez.
+    data_extracao = date.today().isoformat()
+    proveniencias: list = []
+
     # 3a. BCB PTAX — cotação média do dólar
     try:
         if args.ptax_manual is not None:
             ptax_media = Decimal(str(args.ptax_manual))
             logger.info("PTAX manual (override): R$ %s/USD", ptax_media)
+            proveniencias.append(
+                Proveniencia(
+                    variavel="Câmbio (PTAX)",
+                    origem="Manual (--ptax-manual)",
+                    fonte="Cotação informada via CLI",
+                    data_extracao=data_extracao,
+                    observacoes="Override manual do operador.",
+                )
+            )
         else:
             ptax_media = PTAXExtractor().extract(periodo)
             logger.info("PTAX média %s: R$ %s/USD", periodo.label, ptax_media)
+            proveniencias.append(
+                Proveniencia(
+                    variavel="Câmbio (PTAX)",
+                    origem="BCB — Banco Central do Brasil",
+                    fonte="API Olinda PTAX (cotação média de venda do período)",
+                    data_extracao=data_extracao,
+                )
+            )
     except ExtractionError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
 
-    # 3b. IBGE SIDRA — Valor Adicionado Bruto
+    # 3b. VAB — cascata: --vab-manual → IMESC PIB Trimestral → IBGE SIDRA
     try:
         if args.vab_manual is not None:
             vab = Decimal(str(args.vab_manual))
             logger.info("VAB manual (override): R$ %s milhões", vab)
+            proveniencias.append(
+                Proveniencia(
+                    variavel="VAB",
+                    origem="Manual (--vab-manual)",
+                    fonte="Valor informado via CLI",
+                    data_extracao=data_extracao,
+                    observacoes="Override manual do operador.",
+                )
+            )
         else:
-            vab = IBGEExtractor().extract(periodo)
-            logger.info("VAB MA %s: R$ %s milhões", periodo.label, vab)
+            imesc = ImescPibExtractor()
+            try:
+                vab = imesc.extract(periodo)
+                logger.info("VAB MA %s (IMESC): R$ %s milhões", periodo.label, vab)
+                proveniencias.append(imesc.proveniencia(data_extracao))
+            except ExtractionError as exc_imesc:
+                logger.info(
+                    "IMESC indisponível para %s (%s). Caindo para IBGE SIDRA.",
+                    periodo.label,
+                    exc_imesc,
+                )
+                vab = IBGEExtractor().extract(periodo)
+                logger.info("VAB MA %s (IBGE fallback): R$ %s milhões", periodo.label, vab)
+                proveniencias.append(
+                    Proveniencia(
+                        variavel="VAB",
+                        origem="IBGE SIDRA (fallback da cascata)",
+                        fonte="Contas Regionais, Tabela 5938 (PIB × 0,8932)",
+                        data_extracao=data_extracao,
+                        observacoes="Estimativa de VAB a partir do PIB; lag de ~2 anos.",
+                    )
+                )
     except ExtractionError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
 
-    # 3c. GFIS2 Parquet — ICMS arrecadado
+    # 3c. ICMS arrecadado — cascata: SIGDEF (parquet limpo) → GFIS2 Parquet
     try:
-        icms_arrecadado = ArrecadacaoExtractor(str(config.parquet_base_path)).extract(periodo)
-        logger.info("ICMS arrecadado %s: R$ %s milhões", periodo.label, icms_arrecadado)
+        sigdef = SigdefIcmsExtractor()
+        try:
+            icms_arrecadado = sigdef.extract(periodo)
+            logger.info("ICMS arrecadado %s (SIGDEF): R$ %s milhões", periodo.label, icms_arrecadado)
+            proveniencias.append(sigdef.proveniencia(data_extracao))
+        except ExtractionError as exc_sigdef:
+            logger.info(
+                "SIGDEF indisponível para %s (%s). Caindo para GFIS2.",
+                periodo.label,
+                exc_sigdef,
+            )
+            icms_arrecadado = ArrecadacaoExtractor(str(config.parquet_base_path)).extract(periodo)
+            logger.info(
+                "ICMS arrecadado %s (GFIS2 fallback): R$ %s milhões", periodo.label, icms_arrecadado
+            )
+            proveniencias.append(
+                Proveniencia(
+                    variavel="ICMS Arrecadado",
+                    origem="GFIS2/SEFAZ-MA (fallback da cascata)",
+                    fonte="Parquet GFIS2 (val_icms_normal + val_icms_imp + val_icms_st)",
+                    data_extracao=data_extracao,
+                )
+            )
     except ExtractionError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
@@ -256,6 +333,31 @@ def run() -> int:
     except ExtractionError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
+
+    for variavel, manual in (
+        ("Exportações", args.exp_manual),
+        ("Importações", args.imp_manual),
+    ):
+        if manual is not None:
+            proveniencias.append(
+                Proveniencia(
+                    variavel=variavel,
+                    origem="Manual (--exp-manual/--imp-manual)",
+                    fonte="Valor informado via CLI",
+                    data_extracao=data_extracao,
+                    observacoes="Override manual do operador.",
+                )
+            )
+        else:
+            proveniencias.append(
+                Proveniencia(
+                    variavel=variavel,
+                    origem="MDIC ComEx",
+                    fonte="ComexStat (VL_FOB USD × PTAX → BRL); filtro SG_UF_NCM=MA",
+                    data_extracao=data_extracao,
+                    observacoes="FOB em USD convertido pela PTAX média do período.",
+                )
+            )
 
     # 3e. Oracle Siscomex — enriquecimento opcional
     if args.siscomex:
@@ -317,6 +419,26 @@ def run() -> int:
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
 
+    # === Estágio 5.5: DECOMPOSIÇÃO (policy vs compliance) — aditivo, opcional ===
+    # A renúncia da AMF é anual; só decompomos períodos anuais. Ano sem renúncia
+    # degrada para "só gap total" sem quebrar.
+    decomposicao = None
+    if periodo.is_anual:
+        amf = AmfRenunciaReader()
+        renuncia = amf.ler(periodo.ano)
+        if renuncia is not None:
+            decomposicao = decompor_gap(resultado, renuncia)
+            proveniencias.append(amf.proveniencia(renuncia, data_extracao))
+            logger.info(
+                "Decomposição (%s): policy=R$ %s mi, compliance=R$ %s mi%s",
+                renuncia.vintage,
+                decomposicao.policy_gap,
+                decomposicao.compliance_gap,
+                " [ATENÇÃO: renúncia > gap]" if decomposicao.compliance_negativo else "",
+            )
+    else:
+        logger.info("Período trimestral: decomposição (renúncia anual) omitida.")
+
     logger.info("--- Relatório ---")
 
     # === Estágio 6: REPORT ===
@@ -324,9 +446,13 @@ def run() -> int:
     for formato in args.formato:
         try:
             if formato == "pdf":
-                arquivo = PDFReport().gerar(resultado, dados_vrr, config, config.output_path)
+                arquivo = PDFReport().gerar(
+                    resultado, dados_vrr, config, config.output_path, decomposicao, proveniencias
+                )
             else:  # formato == "excel"
-                arquivo = ExcelReport().gerar(resultado, dados_vrr, config, config.output_path)
+                arquivo = ExcelReport().gerar(
+                    resultado, dados_vrr, config, config.output_path, decomposicao, proveniencias
+                )
             arquivos_gerados.append(arquivo)
             logger.info("Relatório gerado: %s", arquivo)
         except OSError as exc:

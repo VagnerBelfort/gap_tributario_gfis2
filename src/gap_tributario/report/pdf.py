@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -24,7 +24,13 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from reportlab.platypus.flowables import HRFlowable
 
 if TYPE_CHECKING:
-    from gap_tributario.models import AppConfig, DadosVRR, ResultadoGap
+    from gap_tributario.models import (
+        AppConfig,
+        DadosVRR,
+        DecomposicaoGap,
+        Proveniencia,
+        ResultadoGap,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,17 @@ logger = logging.getLogger(__name__)
 _COR_PRIMARIA = colors.HexColor("#1a3a6b")  # Azul institucional escuro
 _COR_LINHA_PAR = colors.HexColor("#e8edf5")  # Azul muito claro para linhas alternadas
 _COR_TEXTO_CLARO = colors.white
+
+# Caveats gerais de cobertura/metodologia exibidos no bloco de proveniência
+# (compartilhados pelos relatórios PDF e Excel — ver report/excel.py).
+_CAVEATS_COBERTURA = (
+    "VAB (IMESC) cobre a partir de 2021; anos anteriores usam a cascata de "
+    "fallback (IBGE SIDRA 5938, com lag de ~2 anos).",
+    "A renúncia fiscal (AMF Tabela 7) é estimativa prospectiva da LDO; "
+    "o policy gap herda essa natureza estimativa.",
+    "A alíquota modal do ICMS-MA passou de 18% para 20% em 2023 "
+    "(Lei Estadual 11.867/2022); mudanças mid-year não são suportadas.",
+)
 
 
 def _formatar_brl(valor: Decimal) -> str:
@@ -103,6 +120,8 @@ class PDFReport:
         dados: "DadosVRR",
         config: "AppConfig",
         caminho_saida: Path,
+        decomposicao: "Optional[DecomposicaoGap]" = None,
+        proveniencias: "Optional[List[Proveniencia]]" = None,
     ) -> Path:
         """Gera o relatório PDF.
 
@@ -111,6 +130,8 @@ class PDFReport:
             dados: DadosVRR com os dados de entrada
             config: AppConfig com a configuração da aplicação
             caminho_saida: Diretório de saída para o arquivo PDF
+            decomposicao: Decomposição policy/compliance (opcional, quando há renúncia)
+            proveniencias: Lista de Proveniencia por variável (opcional)
 
         Returns:
             Path para o arquivo PDF gerado
@@ -139,7 +160,7 @@ class PDFReport:
                 bottomMargin=2 * cm,
                 compress=0,
             )
-            story = self._construir_story(resultado, config)
+            story = self._construir_story(resultado, config, decomposicao, proveniencias)
             doc.build(story)
         except OSError as e:
             raise OSError(
@@ -155,6 +176,8 @@ class PDFReport:
         self,
         resultado: "ResultadoGap",
         config: "AppConfig",
+        decomposicao: "Optional[DecomposicaoGap]" = None,
+        proveniencias: "Optional[List[Proveniencia]]" = None,
     ) -> List:
         """Constrói a lista de flowables para o documento PDF."""
         estilos = getSampleStyleSheet()
@@ -298,6 +321,93 @@ class PDFReport:
         story.append(tabela_resultados)
         story.append(Spacer(1, 0.4 * cm))
 
+        # === 1.1 DECOMPOSIÇÃO DO GAP (policy vs compliance) ===
+        if decomposicao is not None:
+            story.append(
+                Paragraph(
+                    "1.1. Decomposição do Gap (Policy vs Compliance)", estilo_secao
+                )
+            )
+
+            tabela_decomp = Table(
+                [
+                    ["Componente", "Valor", "% do Gap"],
+                    [
+                        "Gap Tributário Total",
+                        _formatar_brl(decomposicao.gap_total),
+                        "100,00%",
+                    ],
+                    [
+                        "Policy Gap (renúncia fiscal legal)",
+                        _formatar_brl(decomposicao.policy_gap),
+                        _formatar_percentual(decomposicao.policy_pct),
+                    ],
+                    [
+                        "Compliance Gap (evasão/inadimplência)",
+                        _formatar_brl(decomposicao.compliance_gap),
+                        _formatar_percentual(decomposicao.compliance_pct),
+                    ],
+                ],
+                colWidths=[largura_pagina * 0.5, largura_pagina * 0.3, largura_pagina * 0.2],
+            )
+            tabela_decomp.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), _COR_PRIMARIA),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), _COR_TEXTO_CLARO),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 10),
+                        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                        ("BACKGROUND", (0, 1), (-1, 1), colors.white),
+                        ("BACKGROUND", (0, 2), (-1, 2), _COR_LINHA_PAR),
+                        ("BACKGROUND", (0, 3), (-1, 3), colors.white),
+                        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 1), (-1, -1), 9),
+                        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                        ("BOX", (0, 0), (-1, -1), 1, _COR_PRIMARIA),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ]
+                )
+            )
+            story.append(tabela_decomp)
+            story.append(Spacer(1, 0.2 * cm))
+
+            # Detalhamento por modalidade da renúncia (policy gap)
+            renuncia = decomposicao.renuncia
+            if renuncia.por_modalidade:
+                detalhe = "; ".join(
+                    f"{mod}: {_formatar_brl(val)}"
+                    for mod, val in renuncia.por_modalidade.items()
+                )
+                story.append(
+                    Paragraph(
+                        f"<b>Detalhe da renúncia (ICMS):</b> {detalhe}.", estilo_normal
+                    )
+                )
+
+            if decomposicao.compliance_negativo:
+                story.append(
+                    Paragraph(
+                        "<b>Atenção:</b> a renúncia estimada excede o gap total; "
+                        "o compliance gap resultou negativo.",
+                        estilo_normal,
+                    )
+                )
+
+            story.append(
+                Paragraph(
+                    f"<i>A renúncia fiscal é estimativa prospectiva da LDO "
+                    f"(vintage {renuncia.vintage}, AMF Tabela 7 — fonte BI-Oracle-SEFAZ-MA); "
+                    f"o policy gap herda essa natureza estimativa.</i>",
+                    estilo_normal,
+                )
+            )
+            story.append(Spacer(1, 0.4 * cm))
+
         # === 2. DADOS DE ENTRADA ===
         story.append(Paragraph("2. Dados de Entrada Utilizados", estilo_secao))
 
@@ -398,6 +508,68 @@ class PDFReport:
 
         for item in itens_metodologia:
             story.append(Paragraph(f"&#x2022; {item}", estilo_normal))
+
+        # === 4. PROVENIÊNCIA DAS FONTES ===
+        if proveniencias:
+            story.append(Paragraph("4. Proveniência das Fontes", estilo_secao))
+
+            # Células como Paragraphs para permitir wrap dos textos longos de fonte.
+            estilo_celula = ParagraphStyle(
+                "CelulaProv", parent=estilo_normal, fontSize=8, spaceAfter=0
+            )
+            cabecalho = ["Variável", "Origem", "Fonte", "Data de Extração"]
+            estilo_cab = ParagraphStyle(
+                "CabProv", parent=estilo_celula, textColor=_COR_TEXTO_CLARO
+            )
+            linhas_wrap = [[Paragraph(f"<b>{c}</b>", estilo_cab) for c in cabecalho]]
+            for p in proveniencias:
+                linhas_wrap.append(
+                    [
+                        Paragraph(f"<b>{p.variavel}</b>", estilo_celula),
+                        Paragraph(p.origem, estilo_celula),
+                        Paragraph(p.fonte, estilo_celula),
+                        Paragraph(p.data_extracao, estilo_celula),
+                    ]
+                )
+            tabela_prov = Table(
+                linhas_wrap,
+                colWidths=[
+                    largura_pagina * 0.18,
+                    largura_pagina * 0.30,
+                    largura_pagina * 0.37,
+                    largura_pagina * 0.15,
+                ],
+            )
+            tabela_prov.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), _COR_PRIMARIA),
+                        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                        ("BOX", (0, 0), (-1, -1), 1, _COR_PRIMARIA),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ]
+                )
+            )
+            story.append(tabela_prov)
+            story.append(Spacer(1, 0.2 * cm))
+
+            # Observações por variável (caveats específicos da fonte).
+            for p in proveniencias:
+                if p.observacoes:
+                    story.append(
+                        Paragraph(f"<b>{p.variavel}:</b> {p.observacoes}", estilo_normal)
+                    )
+
+            # Caveats gerais de cobertura/metodologia.
+            for caveat in _CAVEATS_COBERTURA:
+                story.append(Paragraph(f"&#x2022; <i>{caveat}</i>", estilo_normal))
+
+            story.append(Spacer(1, 0.3 * cm))
 
         story.append(Spacer(1, 0.5 * cm))
         story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))

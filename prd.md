@@ -1,119 +1,212 @@
-## Overview
+# PRD — Integração de novas fontes: VAB real, ICMS corrigido e decomposição do gap
 
-O Gap Tributário do ICMS representa a diferença entre o ICMS que deveria ser arrecadado (potencial) e o ICMS efetivamente arrecadado pelo estado. A **Calculadora de Gap Tributário** permite à Sefaz do Maranhão calcular esse gap para períodos específicos, aplicando a metodologia ESAF-2012 combinada com o VRR (VAT Revenue Ratio) da OCDE, adaptada à realidade maranhense.
+> Status: ready-for-agent · Projeto GFIS-2 · Entregável SEFAZ-MA
+> Origem: consolidado via `/grill-me` em 2026-06-08
 
-O produto resolve a falta de visibilidade sobre a eficiência da arrecadação do ICMS no estado, fornecendo métricas objetivas para apoiar a tomada de decisão de analistas fiscais e gestores. Internacionalmente, países da União Europeia medem gaps médios de ~9,5% e os EUA reportam compliance de ~85% — o Maranhão precisa de ferramenta equivalente para mensurar e acompanhar seu desempenho tributário.
+## Problem Statement
 
-O sistema consolida dados de três fontes oficiais — importações (Siscomex), arrecadação estadual (GFIS2) e comércio exterior (MDIC ComEx) — e entrega resultados em relatórios exportáveis (PDF/Excel) com os componentes do cálculo.
+Hoje a Calculadora de Gap Tributário ICMS-MA não consegue calcular bem os
+períodos recentes (2024–2026) porque a fonte de VAB (IBGE SIDRA, tabela 5938)
+tem lag de ~2 anos e exige a aproximação `VAB = PIB × 0,8932`. Além disso:
 
-## Goals
+- A sazonalidade trimestral é apenas **assumida** (premissa "VRR constante
+  intra-ano"), sem dado real.
+- O "Gap" entregue é um **número único e opaco** (`Potencial − Arrecadado`),
+  que mistura renúncia fiscal legal com evasão — a SEFAZ não consegue saber
+  quanto do gap é política tributária (benefício concedido por lei) e quanto
+  é sonegação.
 
-- **Mensurar o gap tributário**: Permitir o cálculo do gap do ICMS do Maranhão para períodos trimestrais ou anuais, utilizando a metodologia ESAF-2012/VRR da OCDE
-- **Apoiar a tomada de decisão**: Fornecer a analistas fiscais e gestores os dados necessários para direcionar políticas de fiscalização e arrecadação
-- **Gerar relatórios formais**: Produzir relatórios exportáveis (PDF/Excel) com os componentes do cálculo (ICMS potencial, ICMS arrecadado, VRR e gap), adequados para uso institucional
-- **Consolidar fontes de dados**: Unificar dados de 3 fontes oficiais (importações, arrecadação e comércio exterior) em uma visão integrada do gap
-- **Validação cruzada**: Permitir comparação dos resultados calculados com benchmarks internacionais (gap médio EU ~9,5%) e estimativas anteriores da Sefaz
-- **Adoção pelos usuários**: Ser utilizado por analistas e gestores como ferramenta regular de apoio às suas decisões sobre arrecadação e fiscalização
+O usuário recebeu três novos conjuntos de dados oficiais que, bem integrados,
+resolvem essas três lacunas.
+
+## Solution
+
+Integrar três fontes novas, cada uma com um papel distinto, mantendo a fórmula
+VRR nuclear intocada:
+
+1. **VAB real (IMESC)** — passa a ser a fonte nº 1 da cascata de VAB, com VAB
+   trimestral nominal direto, eliminando a aproximação PIB×fator, o lag IBGE e
+   a premissa de sazonalidade para os anos cobertos.
+2. **ICMS corrigido (SIGDEF)** — fonte primária de ICMS arrecadado, lida com
+   correção do desalinhamento de colunas do export.
+3. **Decomposição do gap (AMF Tabela 7)** — novo estágio que separa o gap total
+   em *policy gap* (renúncia legal) e *compliance gap* (evasão), padrão RA-GAP
+   do FMI, com novas linhas no relatório.
+
+### Fontes e papéis
+
+| Fonte | É | Papel |
+|---|---|---|
+| `Relatorio-Especializado-do-PIB-Trimestral-1.pdf` (IMESC/Gov MA) | VAB+PIB+Impostos trimestral MA, **valores correntes**, por setor, 2021–2025 | Preenche a lacuna real de VAB |
+| `docs/20260204_por-setor.xls` (CONFAZ/SIGDEF) | ICMS arrecadado mensal por setor, todas UFs, 1997–2023, nominal | Fonte correta de ICMS |
+| `docs/AMF-Tabela 7 ...` (LDO 2022/2025/2026, ×3) | Renúncia fiscal MA (BI-Oracle-SEFAZ), por modalidade/benefício, 2022–2029 | Decompõe o gap |
+| `docs/63_Texto_do_artigo_216...pdf` | Paper CGE de federalismo fiscal | **Fora de escopo** — só referência metodológica |
+
+### Validações de ancoragem (já realizadas)
+
+- **IMESC Tabela 15 (correntes):** soma dos 4 trimestres do VAB 2022 =
+  `25.871 + 33.980 + 31.834 + 33.174 = 124.859` = **exatamente o golden**.
+  Identidade `PIB = VAB(preços básicos) + Impostos(IPLS)` confere.
+- **SIGDEF (offset +1):** a coluna de posição 21 (rotulada erroneamente
+  `va_icms_outras`) é o ICMS total real → MA 2022 = R$ 11.494 mi; nacional
+  2022 = R$ 691 bi (~ICMS Brasil real). A coluna rotulada `va_icms_total` está
+  errada (R$ 681 mi, ~16× baixa).
+- **Decomposição golden 2022:** Gap Total `21.065 − 10.917 = 10.148` =
+  Policy `2.182` (renúncia ICMS 2022) + Compliance `7.966` (~78,5%).
 
 ## User Stories
 
-- **Como analista fiscal**, quero calcular o gap tributário do ICMS para um trimestre específico, para identificar a magnitude da perda de arrecadação e embasar análises técnicas
-- **Como gestor da Sefaz**, quero visualizar o valor consolidado do gap tributário do estado, para tomar decisões estratégicas sobre fiscalização e política tributária
-- **Como analista fiscal**, quero exportar o relatório do gap em PDF ou Excel, para compartilhar os resultados com outras áreas e usar em apresentações
-- **Como gestor da Sefaz**, quero ver os componentes intermediários do cálculo (ICMS potencial, ICMS arrecadado, VRR), para entender como o gap é composto e validar os resultados
-- **Como analista fiscal**, quero selecionar o período de análise (trimestral ou anual), para calcular o gap na granularidade mais adequada para cada necessidade
-- **Como gestor da Sefaz**, quero contextualizar o gap calculado com benchmarks internacionais, para avaliar o desempenho do Maranhão no cenário global
+1. Como analista da SEFAZ-MA, quero calcular o gap de 2024–2026 com VAB real do
+   IMESC, para não depender da aproximação PIB×0,8932 nem do lag de 2 anos do IBGE.
+2. Como analista, quero que o VAB venha direto da Tabela 15 (valores correntes)
+   do relatório IMESC, para que ele seja compatível (nominal) com o ICMS nominal
+   na fórmula VRR.
+3. Como analista, quero que o sistema **nunca** use a Tabela 16 (preços de 2010)
+   no cálculo, para não misturar valores reais com nominais e distorcer o VRR.
+4. Como analista, quero que o IMESC seja a fonte nº 1 da cascata de VAB, com o
+   SIDRA caindo para fallback nos anos não cobertos (<2021), para ter o melhor
+   dado disponível por período.
+5. Como analista, quero calcular um trimestre (ex.: `2024-T2`) usando o VAB real
+   daquele trimestre, sem rateio, para que o número trimestral seja dado e não
+   premissa.
+6. Como analista, quero que o período anual seja a soma dos 4 trimestres do IMESC,
+   para consistência entre as visões anual e trimestral.
+7. Como analista, quero que o VRR trimestral também use Exp/Imp trimestralizados
+   (ComEx mensal agregado ao trimestre), para um cálculo trimestral coerente
+   ponta a ponta.
+8. Como analista, quero usar o ICMS arrecadado do arquivo SIGDEF como fonte
+   correta, porque é o arquivo que a SEFAZ usa para gerar o cálculo oficial.
+9. Como desenvolvedor, quero que o leitor do SIGDEF corrija o desalinhamento de
+   colunas (offset +1) lendo por posição, e não pelos rótulos, porque os rótulos
+   do export estão trocados.
+10. Como desenvolvedor, quero materializar o SIGDEF corrigido em um parquet limpo,
+    para não reparsear o `.xls` (2,5 MB) a cada execução.
+11. Como analista, quero que o teste golden 2022 continue ancorado na fonte antiga
+    (GFIS2) até a revisão metodológica dos ~5%, para que adotar o SIGDEF não
+    quebre o golden agora.
+12. Como gestor da SEFAZ, quero ver o gap **decomposto** em policy gap (renúncia
+    legal) e compliance gap (evasão), para saber quanto do gap é decisão de
+    política e quanto é sonegação.
+13. Como gestor, quero ver a renúncia detalhada por modalidade (Crédito Presumido,
+    Isenção, Redução de Base de Cálculo), para entender a composição do policy gap.
+14. Como gestor, quero que a decomposição cubra inclusive 2022 (ano golden),
+    porque há dado de renúncia de 2022 nas planilhas da LDO-2022.
+15. Como analista, quero que cada fonte nova carregue um objeto `Proveniencia`
+    (origem, data de extração, observações), que vira linha no relatório, para
+    rastreabilidade e auditoria.
+16. Como leitor do relatório, quero caveats explícitos: renúncia é estimativa LDO
+    (prospectiva, não realizada); VAB IMESC só cobre ≥2021; alíquota muda em 2023
+    (18%→20%), para interpretar os números corretamente.
+17. Como analista, quero que a fórmula VRR nuclear (`MotorVRR`) permaneça
+    inalterada, para não introduzir risco metodológico.
+18. Como desenvolvedor, quero a ordem das cascatas configurável em
+    `config/fontes.yaml`, para ajustar prioridades sem mexer no código.
+19. Como gestor, quero que o relatório PDF e o Excel mostrem as novas linhas
+    (decomposição + proveniência), para uma entrega completa.
+20. Como desenvolvedor, quero que `pytest` continue verde, cobertura ≥80% total e
+    ≥85% nos módulos novos, e `ruff` limpo, para manter os critérios de aceitação.
 
-## Core Features
+## Implementation Decisions
 
-### 1. Cálculo do Gap Tributário
+### Novos módulos / interfaces
 
-Permite ao usuário calcular o gap tributário do ICMS do Maranhão aplicando a metodologia ESAF-2012 combinada com o VRR da OCDE. O cálculo consolida dados de três fontes oficiais para estimar o ICMS potencial e compará-lo com o efetivamente arrecadado.
+- **`SigdefParser` (transform puro de ingestão)** — função `parse_sigdef(raw) ->
+  clean_df` que aplica o **fix de offset +1** (lê a coluna de posição 21 como
+  ICMS total, ignorando os rótulos errados do export), valida sanidade (nacional
+  ~ICMS Brasil) e produz um DataFrame limpo materializado em parquet. É o módulo
+  profundo mais arriscado; isolado para teste com fixture pequena.
+- **`SigdefIcmsExtractor` (Extractor)** — `extract(periodo) -> pl.DataFrame`; lê o
+  parquet limpo, agrega mês→período (trimestre ou ano). Fonte primária de ICMS.
+- **`ImescPibExtractor` (Extractor)** — `extract(periodo) -> pl.DataFrame` com VAB
+  (e Impostos/PIB) correntes; soma os 4 trimestres no anual, retorna o trimestre
+  direto no trimestral. Fonte nº 1 da cascata de VAB. Dados transcritos da
+  Tabela 15 para arquivo versionado no repo.
+- **`AmfRenunciaReader` (transform puro)** — `renuncia_icms(ano) -> Decimal` e
+  detalhamento por modalidade; mescla os 3 xlsx (cobertura 2022–2029), seleciona
+  o ano e soma as modalidades de ICMS (exclui IPVA).
+- **`GapDecomposer` (`engine/gap_decomposition.py`, função pura)** — recebe
+  `ResultadoGap` + renúncia do ano e retorna a decomposição:
+  `policy_gap = renúncia`; `compliance_gap = gap_absoluto − policy_gap`; mais
+  percentuais. **Não** toca `MotorVRR`.
+- **`Proveniencia` (`models.py`, dataclass)** — origem, data de extração, fonte,
+  observações; anexada aos dados extraídos e renderizada no relatório.
 
-**Por que é importante**: É a funcionalidade central do produto — sem ela, não há como mensurar a diferença entre o potencial e o efetivo da arrecadação do ICMS.
+### Decisões arquiteturais
 
-**Requisitos funcionais**:
-1. O sistema deve calcular o ICMS potencial estimado do estado com base nos dados das fontes oficiais
-2. O sistema deve utilizar o ICMS efetivamente arrecadado consolidado do período
-3. O sistema deve calcular o VRR (VAT Revenue Ratio) conforme metodologia da OCDE adaptada ao Maranhão
-4. O sistema deve calcular o valor do gap tributário (diferença entre potencial e arrecadado)
-5. O sistema deve apresentar o gap como valor absoluto (R$) e como percentual do ICMS potencial
+- Contrato real dos extratores é a classe-base **`Extractor`** (não um Protocol).
+  Novos extratores herdam dela e implementam `extract`.
+- **`config/fontes.yaml` (novo)** define a ordem das cascatas. VAB: IMESC →
+  SIDRA → IPEADATA → BCB Focus → AutoARIMA → `--vab-manual`. ICMS: SIGDEF → GFIS2.
+- **Pinagem do golden:** o teste golden 2022 permanece alimentado pela fonte GFIS2
+  até a revisão metodológica dos ~5% (SIGDEF daria 11.494 vs golden 10.917). O
+  SIGDEF é fonte primária para todos os demais usos.
+- **Sem `engine/seasonality.py`:** o módulo descrito no CLAUDE.md não existe e
+  **não** será criado; o caminho trimestral usa VAB IMESC direto, sem rateio.
+- A fórmula VRR (`engine/vrr.py` / `MotorVRR`) permanece **intocada**. A
+  decomposição é um estágio posterior, aditivo.
+- `ResultadoGap` (frozen) ganha um companion de decomposição (policy/compliance)
+  consumido pelo relatório; ou um novo `ResultadoGapDecomposto` que envelopa o
+  `ResultadoGap` — a definir na issue, sem alterar a semântica do `ResultadoGap`.
 
-### 2. Seleção de Período
+### Contratos de dado
 
-Permite ao usuário escolher o período para o qual deseja calcular o gap tributário, com opções de granularidade trimestral ou anual.
+- VAB, ICMS, Exp, Imp em **R$ milhões**, **nominais/correntes**.
+- IMESC: `PIB = VAB(preços básicos) + Impostos(IPLS)`; usar a coluna **VAB**.
+- SIGDEF: ICMS total = coluna de **posição 21** (por posição, não por rótulo).
+- AMF: somar modalidades de **ICMS** (Crédito Presumido + Isenção + Redução de
+  Base de Cálculo); IPVA fica de fora do policy gap de ICMS.
 
-**Por que é importante**: Diferentes análises requerem diferentes horizontes temporais — a análise trimestral permite acompanhamento mais frequente, enquanto a anual oferece visão consolidada.
+## Testing Decisions
 
-**Requisitos funcionais**:
-1. O usuário deve poder selecionar um período trimestral (Q1, Q2, Q3, Q4 de um ano específico)
-2. O usuário deve poder selecionar um período anual completo
-3. O sistema deve validar se existem dados disponíveis para o período selecionado
-4. O sistema deve informar claramente ao usuário caso os dados do período estejam incompletos ou indisponíveis
+Bom teste = verifica **comportamento externo** (entrada→saída do módulo), não
+detalhes de implementação. Usar fixtures pequenas e determinísticas.
 
-### 3. Relatório Exportável
+Módulos com testes (decisão do usuário — todos os 4 transforms puros):
 
-Gera um relatório com os resultados do cálculo do gap, incluindo os componentes intermediários, exportável nos formatos PDF e Excel.
+- **`SigdefParser`** — fixture com poucas linhas reproduzindo o offset +1;
+  asserir que a col. 21 vira ICMS total e que a sanidade nacional bate a ordem
+  de grandeza. Cobrir o caso de rótulos enganosos.
+- **`GapDecomposer`** — casos puros: golden 2022 (10.148 = 2.182 + 7.966);
+  renúncia > gap (compliance negativo → tratar/avisar); renúncia ausente para o
+  ano (degradar para "só gap total").
+- **`ImescPibExtractor`** — anual = soma dos 4 trimestres (2022 → 124.859);
+  trimestral retorna o trimestre direto (2022-T1 → 25.871); ano fora de cobertura
+  → sinaliza para fallback.
+- **`AmfRenunciaReader`** — merge dos 3 xlsx; seleção por ano (2022 → 2.182 mi de
+  ICMS); soma correta das modalidades; exclusão de IPVA.
 
-**Por que é importante**: Analistas precisam de documentos formais para embasar análises técnicas, e gestores precisam de relatórios para apresentações e tomada de decisão institucional.
+Invariantes que **não** podem quebrar:
 
-**Requisitos funcionais**:
-1. O relatório deve apresentar o ICMS potencial estimado do período
-2. O relatório deve apresentar o ICMS efetivamente arrecadado do período
-3. O relatório deve apresentar o VRR calculado
-4. O relatório deve apresentar o valor do gap tributário em R$ e em percentual
-5. O relatório deve ser exportável no formato PDF (layout profissional para apresentações)
-6. O relatório deve ser exportável no formato Excel (para manipulação analítica)
-7. O relatório deve identificar o período analisado, a data de geração e a metodologia utilizada (ESAF-2012/VRR OCDE)
-8. O relatório deve incluir referência aos benchmarks internacionais para contextualização
+- **Golden 2022** (VRR = 0,518 ± 0,002) continua passando (ancorado em GFIS2).
+- `pytest` verde; cobertura ≥80% total e ≥85% nos módulos novos; `ruff` limpo.
+- TDD obrigatório (escrever teste antes da implementação).
 
-### 4. Consolidação de Dados de Múltiplas Fontes
+Prior art: testes existentes em `tests/test_extractors/`, `tests/test_engine/`,
+`tests/test_validators/`, `tests/test_report/`; fixtures em `tests/fixtures/`
+(há `parquet/arrecadacao_fixture.parquet`).
 
-O sistema consolida dados de três fontes oficiais — importações, arrecadação estadual e comércio exterior — para viabilizar o cálculo do gap.
+## Out of Scope
 
-**Por que é importante**: O cálculo do gap requer cruzamento de dados de diferentes origens para estimar o ICMS potencial e compará-lo com o arrecadado efetivamente.
+- **Reconciliação dos ~5%** de ICMS (SIGDEF 11.494 vs golden 10.917) — fica para
+  revisão metodológica formal; até lá o golden segue ancorado em GFIS2.
+- **Migração da ingestão IMESC** de transcrição manual para fonte máquina
+  (xlsx/API `imesc.ma.gov.br`).
+- **Investigar o VRR 2019 suspeito** (=0,213).
+- **Uso do paper CGE** (`63_...pdf`) como fonte de dados — ele não tem VAB/PIB/
+  ICMS utilizável para MA; no máximo referência metodológica.
+- **Mudança de alíquota mid-year** (já era limitação conhecida).
+- Decomposição setorial do gap (o ICMS por setor do SIGDEF e o VAB por setor do
+  IMESC permitem isso no futuro, mas não agora).
 
-**Requisitos funcionais**:
-1. O sistema deve consumir dados de importações (Siscomex)
-2. O sistema deve consumir dados de arrecadação estadual do ICMS (GFIS2)
-3. O sistema deve consumir dados de comércio exterior (MDIC ComEx)
-4. O sistema deve validar a consistência e completude dos dados antes do cálculo
-5. O sistema deve informar ao usuário caso alguma fonte de dados esteja indisponível ou com dados incompletos para o período
+## Further Notes
 
-## User Experience
-
-### Personas
-
-**Analista Fiscal**: Profissional técnico da Sefaz MA que precisa de detalhes quantitativos do gap para embasar análises e relatórios técnicos. Necessita dos componentes intermediários do cálculo e exportação em formatos manipuláveis (Excel). Valoriza precisão e transparência metodológica.
-
-**Gestor da Sefaz**: Tomador de decisão que precisa de uma visão consolidada e de alto nível do gap tributário para direcionar políticas de fiscalização e arrecadação. Prefere relatórios formatados (PDF) para apresentações institucionais. Valoriza clareza e contextualização dos resultados.
-
-### Fluxo Principal
-
-1. O usuário acessa a ferramenta de cálculo do gap tributário
-2. O usuário seleciona o tipo de período desejado (trimestral ou anual)
-3. O usuário seleciona o período específico (ex: Q3/2025 ou Ano 2025)
-4. O sistema verifica a disponibilidade e completude dos dados para o período
-5. O sistema executa o cálculo do gap aplicando a metodologia ESAF-2012/VRR
-6. O sistema apresenta os resultados: ICMS potencial, ICMS arrecadado, VRR e valor do gap (R$ e %)
-7. O usuário exporta o relatório no formato desejado (PDF ou Excel)
-
-### Considerações de UX
-
-- A interface deve ser simples e objetiva, priorizando a clareza dos resultados numéricos
-- Valores monetários devem ser apresentados no formato brasileiro (R$, separadores de milhar com ponto, decimais com vírgula)
-- O relatório PDF deve ter layout profissional adequado para apresentações institucionais da Sefaz
-- O relatório Excel deve permitir manipulação dos dados pelo analista
-- Mensagens de erro devem ser claras e específicas (ex: "Dados de importação indisponíveis para Q3/2025")
-- O fluxo do cálculo deve ser linear e com poucos passos, minimizando a curva de aprendizado
-
-## Non-Goals (Out of Scope)
-
-- **Automação de recorrência**: O MVP não inclui execução automática periódica. O usuário executa o cálculo manualmente para o período desejado. A automação é planejada para versões futuras
-- **Comparação histórica entre períodos**: O relatório apresenta apenas o resultado do período selecionado, sem gráficos de evolução ou comparação com períodos anteriores
-- **Segmentação do gap**: O MVP calcula apenas o gap total consolidado do estado do Maranhão, sem quebras por setor econômico, tipo de operação, região ou município
-- **Dashboard interativo**: O MVP entrega relatórios exportáveis (PDF/Excel), não um painel visual interativo com gráficos dinâmicos
-- **Previsões e projeções**: O sistema calcula o gap com base em dados do período selecionado, não faz projeções futuras ou análises preditivas
-- **Integração com sistemas de fiscalização**: O MVP não se integra com outros sistemas da Sefaz para disparar ações automáticas de fiscalização com base no gap
-- **Gestão de usuários e permissões**: O MVP não inclui controle de acesso baseado em perfis ou papéis
-- **Granularidade mensal**: O MVP suporta apenas períodos trimestrais e anuais, sem granularidade mensal
+- A correção do offset do SIGDEF vindica o arquivo: o "16×" era artefato de
+  parsing, não problema do dado. O dado é nominal e bate com a realidade nacional.
+- A renúncia AMF tem fonte `BI-Oracle-SEFAZ-MA` — o mesmo Oracle que o CLAUDE.md
+  aponta como fonte correta (mas inacessível) de importações Siscomex; pode ser
+  um caminho futuro de acesso.
+- Os 3 arquivos AMF têm cobertura sobreposta (anos repetidos entre vintages); o
+  `AmfRenunciaReader` deve escolher a vintage mais apropriada por ano e logar a
+  escolha.
+- Pipeline alvo permanece de 7 estágios: CLI Parse → Config → Extract → Validate
+  → Calculate → Report → Output. A decomposição entra entre Calculate e Report.

@@ -10,10 +10,10 @@ Define os contratos de dados compartilhados por todos os módulos:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -114,6 +114,54 @@ class ResultadoGap:
     importacoes_brl: Decimal  # Para referência no relatório
     aliquota_padrao: Decimal  # Para referência no relatório
     ptax_media: Decimal  # Para referência no relatório
+
+
+@dataclass(frozen=True)
+class RenunciaFiscal:
+    """Renúncia fiscal de ICMS de um ano, conforme a AMF Tabela 7 (LDO/MA).
+
+    Estimativa prospectiva (LDO), em R$ milhões. Soma das modalidades de ICMS
+    (Crédito Presumido + Isenção + Redução de Base de Cálculo); IPVA fica de fora.
+    """
+
+    ano: int
+    total: Decimal  # R$ milhões — soma das modalidades de ICMS
+    por_modalidade: Dict[str, Decimal] = field(default_factory=dict)  # modalidade -> R$ milhões
+    vintage: str = ""  # origem (ex.: "LDO-2022")
+
+
+@dataclass(frozen=True)
+class DecomposicaoGap:
+    """Decomposição do gap total em policy gap (renúncia) e compliance gap (evasão).
+
+    Padrão RA-GAP (FMI): policy_gap = renúncia fiscal legal; compliance_gap =
+    gap_total − policy_gap (evasão/inadimplência). Valores em R$ milhões.
+    """
+
+    gap_total: Decimal
+    policy_gap: Decimal
+    compliance_gap: Decimal
+    policy_pct: Decimal  # % do gap total
+    compliance_pct: Decimal  # % do gap total
+    renuncia: RenunciaFiscal
+    compliance_negativo: bool = False  # True quando renúncia > gap (compliance < 0)
+
+
+@dataclass(frozen=True)
+class Proveniencia:
+    """Rastreabilidade de uma variável da fórmula VRR até a fonte que a produziu.
+
+    Cada variável (VAB, ICMS arrecadado, renúncia fiscal...) carrega a origem
+    (sistema/instituição), a fonte (documento/tabela específica), a data de
+    extração (ISO YYYY-MM-DD) e observações (caveats de cobertura/metodologia).
+    Renderizada no bloco de proveniência dos relatórios PDF e Excel.
+    """
+
+    variavel: str  # ex.: "VAB", "ICMS Arrecadado", "Renúncia Fiscal (ICMS)"
+    origem: str  # sistema/instituição: "IMESC", "SIGDEF", "AMF Tabela 7 (LDO/MA)"
+    fonte: str  # documento/tabela: "Relatório PIB Trimestral, Tabela 15"
+    data_extracao: str  # data de extração no formato ISO (YYYY-MM-DD)
+    observacoes: str = ""  # caveats de cobertura/metodologia
 
 
 @dataclass

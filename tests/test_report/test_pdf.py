@@ -199,6 +199,56 @@ def test_campos_obrigatorios_no_story(resultado_2022, config_test):
     assert "2022" in todo_texto
 
 
+def test_decomposicao_aparece_no_story(resultado_2022, config_test):
+    """Quando há decomposição, o story PDF exibe policy/compliance e o caveat LDO."""
+    from reportlab.platypus import Paragraph, Table
+
+    from gap_tributario.models import DecomposicaoGap, RenunciaFiscal
+
+    decomposicao = DecomposicaoGap(
+        gap_total=Decimal("10148.22"),
+        policy_gap=Decimal("2182.13"),
+        compliance_gap=Decimal("7966.09"),
+        policy_pct=Decimal("21.50"),
+        compliance_pct=Decimal("78.50"),
+        renuncia=RenunciaFiscal(
+            ano=2022,
+            total=Decimal("2182.13"),
+            por_modalidade={"Crédito Presumido": Decimal("1268.01")},
+            vintage="LDO-2022",
+        ),
+    )
+
+    pdf = PDFReport()
+    story = pdf._construir_story(resultado_2022, config_test, decomposicao)
+
+    texto_paras = " ".join(item.text for item in story if isinstance(item, Paragraph))
+    texto_tabs = " ".join(
+        cell
+        for item in story
+        if isinstance(item, Table)
+        for row in item._cellvalues
+        for cell in row
+        if isinstance(cell, str)
+    )
+    todo = texto_paras + " " + texto_tabs
+
+    assert "Policy Gap" in todo
+    assert "Compliance Gap" in todo
+    assert "Crédito Presumido" in todo  # detalhe por modalidade
+    assert "LDO-2022" in todo  # caveat de vintage/estimativa LDO
+
+
+def test_sem_decomposicao_nao_exibe_secao(resultado_2022, config_test):
+    """Sem decomposição (None), o story não contém a seção de policy/compliance."""
+    from reportlab.platypus import Paragraph
+
+    pdf = PDFReport()
+    story = pdf._construir_story(resultado_2022, config_test, None)
+    texto = " ".join(item.text for item in story if isinstance(item, Paragraph))
+    assert "Policy Gap" not in texto
+
+
 # ---------------------------------------------------------------------------
 # Teste de erro de escrita
 # ---------------------------------------------------------------------------
@@ -261,3 +311,64 @@ def test_formatar_aliquota_20():
 def test_formatar_ptax():
     """Formata PTAX com 4 casas decimais no padrão brasileiro."""
     assert _formatar_ptax(Decimal("5.1646")) == "R$ 5,1646"
+
+
+def test_proveniencia_aparece_no_story(resultado_2022, config_test):
+    """Quando há proveniências, o story PDF exibe a seção com origem/fonte/data e caveats."""
+    from reportlab.platypus import Paragraph, Table
+
+    from gap_tributario.models import Proveniencia
+
+    provs = [
+        Proveniencia(
+            variavel="VAB",
+            origem="IMESC",
+            fonte="Relatório PIB Trimestral, Tabela 15",
+            data_extracao="2026-06-08",
+            observacoes="Cobertura 2021–2025.",
+        ),
+        Proveniencia(
+            variavel="ICMS Arrecadado",
+            origem="SIGDEF",
+            fonte="Export por setor",
+            data_extracao="2026-06-08",
+        ),
+    ]
+
+    pdf = PDFReport()
+    story = pdf._construir_story(resultado_2022, config_test, None, provs)
+
+    def _texto_celula(cell) -> str:
+        if isinstance(cell, str):
+            return cell
+        if isinstance(cell, Paragraph):
+            return cell.text
+        return ""
+
+    texto_paras = " ".join(item.text for item in story if isinstance(item, Paragraph))
+    texto_tabs = " ".join(
+        _texto_celula(cell)
+        for item in story
+        if isinstance(item, Table)
+        for row in item._cellvalues
+        for cell in row
+    )
+    todo = texto_paras + " " + texto_tabs
+
+    assert "Proveni" in todo  # título da seção (Proveniência)
+    assert "IMESC" in todo
+    assert "SIGDEF" in todo
+    assert "2026-06-08" in todo  # data de extração por variável
+    # Caveats de cobertura/metodologia obrigatórios:
+    assert "2021" in todo  # VAB cobertura ≥2021
+    assert "11.867" in todo or "20%" in todo  # alíquota 18→20% em 2023
+
+
+def test_sem_proveniencia_nao_exibe_secao(resultado_2022, config_test):
+    """Sem proveniências (None), o story não contém a seção de proveniência."""
+    from reportlab.platypus import Paragraph
+
+    pdf = PDFReport()
+    story = pdf._construir_story(resultado_2022, config_test, None, None)
+    texto = " ".join(item.text for item in story if isinstance(item, Paragraph))
+    assert "Proveniência das Fontes" not in texto

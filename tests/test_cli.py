@@ -66,10 +66,26 @@ def _mock_extractors(
             return_value=ptax,
         )
     )
+    # IMESC é a fonte nº1 da cascata de VAB; IBGE é o fallback. Ambos mockados
+    # com o mesmo valor de referência para controlar o VAB nos testes do CLI.
+    stack.enter_context(
+        patch(
+            "gap_tributario.extractors.imesc_pib.ImescPibExtractor.extract",
+            return_value=vab,
+        )
+    )
     stack.enter_context(
         patch(
             "gap_tributario.extractors.ibge.IBGEExtractor.extract",
             return_value=vab,
+        )
+    )
+    # SIGDEF é a fonte nº1 da cascata de ICMS; GFIS2 (ArrecadacaoExtractor) é o
+    # fallback. Ambos mockados com o mesmo valor para controlar o ICMS nos testes.
+    stack.enter_context(
+        patch(
+            "gap_tributario.extractors.sigdef.SigdefIcmsExtractor.extract",
+            return_value=icms,
         )
     )
     stack.enter_context(
@@ -414,12 +430,15 @@ def test_extraction_error_ptax_retorna_exit_2(config_path, saida):
 
 
 def test_extraction_error_ibge_retorna_exit_2(config_path, saida):
-    """ExtractionError em IBGEExtractor → exit(2)."""
+    """Cascata de VAB exaurida (IMESC e IBGE falham) → exit(2)."""
     from gap_tributario.extractors.base import ExtractionError
 
     with patch(
         "gap_tributario.extractors.ptax.PTAXExtractor.extract",
         return_value=_PTAX,
+    ), patch(
+        "gap_tributario.extractors.imesc_pib.ImescPibExtractor.extract",
+        side_effect=ExtractionError("IMESC indisponível"),
     ), patch(
         "gap_tributario.extractors.ibge.IBGEExtractor.extract",
         side_effect=ExtractionError("IBGE indisponível"),
@@ -442,15 +461,21 @@ def test_extraction_error_ibge_retorna_exit_2(config_path, saida):
 
 
 def test_extraction_error_arrecadacao_retorna_exit_2(config_path, saida):
-    """ExtractionError em ArrecadacaoExtractor → exit(2)."""
+    """Cascata de ICMS exaurida (SIGDEF e GFIS2 falham) → exit(2)."""
     from gap_tributario.extractors.base import ExtractionError
 
     with patch(
         "gap_tributario.extractors.ptax.PTAXExtractor.extract",
         return_value=_PTAX,
     ), patch(
+        "gap_tributario.extractors.imesc_pib.ImescPibExtractor.extract",
+        return_value=_VAB,
+    ), patch(
         "gap_tributario.extractors.ibge.IBGEExtractor.extract",
         return_value=_VAB,
+    ), patch(
+        "gap_tributario.extractors.sigdef.SigdefIcmsExtractor.extract",
+        side_effect=ExtractionError("SIGDEF indisponível"),
     ), patch(
         "gap_tributario.extractors.arrecadacao.ArrecadacaoExtractor.extract",
         side_effect=ExtractionError("Parquet não encontrado"),

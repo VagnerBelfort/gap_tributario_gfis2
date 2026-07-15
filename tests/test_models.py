@@ -17,6 +17,7 @@ from gap_tributario.models import (
     ConfigAliquota,
     DadosVRR,
     PeriodoCalculo,
+    Proveniencia,
     ResultadoGap,
 )
 
@@ -398,3 +399,43 @@ class TestAppConfig:
             legislacao="Lei 11.867/2022",
         )
         assert aliq.ano_fim is None
+
+
+class TestProveniencia:
+    """Testes para a dataclass Proveniencia (rastreabilidade fonte→variável)."""
+
+    def test_construcao_com_todos_os_campos(self) -> None:
+        """Proveniencia carrega variável, origem, fonte, data e observações."""
+        p = Proveniencia(
+            variavel="VAB",
+            origem="IMESC",
+            fonte="Relatório PIB Trimestral, Tabela 15",
+            data_extracao="2026-06-08",
+            observacoes="Cobertura 2021–2025.",
+        )
+        assert p.variavel == "VAB"
+        assert p.origem == "IMESC"
+        assert p.fonte == "Relatório PIB Trimestral, Tabela 15"
+        assert p.data_extracao == "2026-06-08"
+        assert p.observacoes == "Cobertura 2021–2025."
+
+    def test_observacoes_default_vazio(self) -> None:
+        """observacoes é opcional e default vazio."""
+        p = Proveniencia(
+            variavel="ICMS Arrecadado",
+            origem="SIGDEF",
+            fonte="Export por setor",
+            data_extracao="2026-06-08",
+        )
+        assert p.observacoes == ""
+
+    def test_proveniencia_e_imutavel(self) -> None:
+        """Proveniencia é frozen (não pode ser mutada após criação)."""
+        p = Proveniencia(
+            variavel="VAB",
+            origem="IMESC",
+            fonte="Tabela 15",
+            data_extracao="2026-06-08",
+        )
+        with pytest.raises(_FrozenInstanceError):
+            p.origem = "outro"  # type: ignore[misc]
