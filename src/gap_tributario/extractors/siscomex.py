@@ -37,6 +37,13 @@ _FATOR_MILHOES = Decimal("1000000")
 # UF ausente na declaração e CNPJ não resolvido no cadastro de contribuintes.
 _UF_NAO_IDENTIFICADA = "NI"
 
+# Primeiro ano com cobertura confiável no Siscomex. Antes disso a base tem
+# poucas DIs (205 em 2011, 1.808 em 2012, contra ~3.000/ano de 2013 em diante),
+# e somar o que existe devolveria um total muito abaixo do real com aparência
+# de número válido. Abaixo deste piso preferimos falhar e deixar a cascata cair
+# para o MDIC, que ao menos cobre o período inteiro.
+_ANO_COBERTURA_CONFIAVEL = 2013
+
 
 class SiscomexSnapshotExtractor:
     """Extrai importações do MA (CIF, R$ milhões) do snapshot do Siscomex."""
@@ -46,6 +53,7 @@ class SiscomexSnapshotExtractor:
         snapshot_path: Union[str, Path],
         *,
         incluir_nao_identificado: bool = False,
+        ano_minimo: int = _ANO_COBERTURA_CONFIAVEL,
     ) -> None:
         """Inicializa o extrator.
 
@@ -55,9 +63,12 @@ class SiscomexSnapshotExtractor:
                 pôde ser atribuído a uma UF (`NI`). Padrão False — atribuir ao
                 MA o que não foi comprovado infla a base. Use True para obter
                 o teto do intervalo numa análise de sensibilidade.
+            ano_minimo: Primeiro ano aceito. Anos anteriores levantam
+                ExtractionError em vez de devolver total subestimado.
         """
         self.snapshot_path = Path(snapshot_path)
         self.incluir_nao_identificado = incluir_nao_identificado
+        self.ano_minimo = ano_minimo
 
     def _scan(self) -> "pl.LazyFrame":
         """Lê o snapshot conforme a extensão: .parquet ou CSV com ';'."""
@@ -74,6 +85,13 @@ class SiscomexSnapshotExtractor:
         Returns:
             Decimal com o valor aduaneiro (CIF) em milhões de R$.
         """
+        if periodo.ano < self.ano_minimo:
+            raise ExtractionError(
+                f"Período {periodo.label} está fora da cobertura confiável do "
+                f"Siscomex (a partir de {self.ano_minimo}). Caindo para a próxima "
+                f"fonte da cascata (MDIC ComEx)."
+            )
+
         if not self.snapshot_path.exists():
             raise ExtractionError(
                 f"Snapshot do Siscomex não encontrado: '{self.snapshot_path}'. "

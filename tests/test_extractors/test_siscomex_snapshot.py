@@ -178,3 +178,39 @@ def test_snapshot_parquet_e_lido(tmp_path):
     ).write_parquet(caminho)
 
     assert SiscomexSnapshotExtractor(caminho).extract(PeriodoCalculo(ano=2022)) == Decimal("5000")
+
+
+def test_ano_abaixo_da_cobertura_levanta_extraction_error(tmp_path):
+    """Ano com dados ralos precisa falhar, não devolver total subestimado.
+
+    O snapshot tem 205 DIs em 2011 e 1.808 em 2012, contra ~3.000/ano de 2013
+    em diante. Somar o que existe devolveria um total muito abaixo do real com
+    aparência de número válido — o pior erro possível num entregável fiscal.
+    """
+    snapshot = _escrever_snapshot(
+        tmp_path / "siscomex.csv",
+        [
+            (2011, 1, 27, "MA", "MA", 5, 1_000_000_000.0),
+            (2022, 1, 27, "MA", "MA", 900, 5_000_000_000.0),
+        ],
+    )
+
+    extractor = SiscomexSnapshotExtractor(snapshot)
+
+    with pytest.raises(ExtractionError, match="cobertura"):
+        extractor.extract(PeriodoCalculo(ano=2011))
+
+    # O ano dentro da cobertura segue funcionando.
+    assert extractor.extract(PeriodoCalculo(ano=2022)) == Decimal("5000")
+
+
+def test_ano_minimo_e_configuravel(tmp_path):
+    """Quem quiser assumir o risco dos anos ralos pode baixar o piso."""
+    snapshot = _escrever_snapshot(
+        tmp_path / "siscomex.csv",
+        [(2011, 1, 27, "MA", "MA", 5, 1_000_000_000.0)],
+    )
+
+    extractor = SiscomexSnapshotExtractor(snapshot, ano_minimo=2009)
+
+    assert extractor.extract(PeriodoCalculo(ano=2011)) == Decimal("1000")

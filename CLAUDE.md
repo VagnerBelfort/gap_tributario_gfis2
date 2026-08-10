@@ -100,6 +100,16 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
   o minério de Carajás escoado por Ponta da Madeira sozinho passa de US$ 15 bi
   — ele é atribuído ao Pará, então o trânsito não contamina a exportação.
 
+- **Janela suportada**: o Siscomex só é aceito de **2013** em diante
+  (`_ANO_COBERTURA_CONFIAVEL`). Antes disso a base tem 205 DIs em 2011 e 1.808
+  em 2012, contra ~3.000/ano depois — somar o que existe devolveria um total
+  muito abaixo do real com cara de número válido. Anos anteriores levantam
+  `ExtractionError` e caem para o MDIC, que cobre o período inteiro mas
+  **superestima** (inclui trânsito por Itaqui). A calibração do MDIC pela razão
+  de trânsito medida no Siscomex está decidida mas **não implementada** — até
+  lá, anos < 2013 não são entregáveis. Na prática o limite real é a arrecadação:
+  dados confiáveis só a partir de 2019.
+
 - **Balde `NI`**: hoje 30 DIs e R$ 9,1 mi (era R$ 2,23 bi antes da resolução por
   CNPJ). Excluídas por padrão; `--imp-incluir-ni` dá o teto da sensibilidade.
 
