@@ -69,11 +69,8 @@ def config_integracao(tmp_path: Path) -> Path:
 fontes:
   parquet_base_path: "{parquet_dir}"
   mdic_base_path: "{csv_dir}"
-
-oracle:
-  dsn: ""
-  user: ""
-  password: ""
+  # Inexistente: estes testes exercitam a queda da cascata para o MDIC ComEx.
+  siscomex_snapshot_path: "{tmp_path}/snapshot_ausente.csv"
 """
     config_file = tmp_path / "aliquotas.yaml"
     config_file.write_text(config_content, encoding="utf-8")
@@ -194,8 +191,12 @@ def test_relatorio_pdf_contem_secoes_obrigatorias(config_integracao, saida_dir):
     original_construir_story = PDFReport._construir_story
     captured_story: list = []
 
-    def mock_construir_story(self, resultado, config, decomposicao=None, proveniencias=None):  # type: ignore[no-untyped-def]
-        story = original_construir_story(self, resultado, config, decomposicao, proveniencias)
+    def mock_construir_story(  # type: ignore[no-untyped-def]
+        self, resultado, config, decomposicao=None, proveniencias=None, comparacao_fontes=None
+    ):
+        story = original_construir_story(
+            self, resultado, config, decomposicao, proveniencias, comparacao_fontes
+        )
         captured_story.extend(story)
         return story
 
@@ -469,9 +470,28 @@ def test_pipeline_propaga_proveniencia_para_o_relatorio(config_integracao, saida
     capturado: dict = {}
     original_gerar = PDFReport.gerar
 
-    def mock_gerar(self, resultado, dados, config, caminho, decomposicao=None, proveniencias=None):  # type: ignore[no-untyped-def]
+    def mock_gerar(  # type: ignore[no-untyped-def]
+        self,
+        resultado,
+        dados,
+        config,
+        caminho,
+        decomposicao=None,
+        proveniencias=None,
+        comparacao_fontes=None,
+    ):
         capturado["proveniencias"] = proveniencias
-        return original_gerar(self, resultado, dados, config, caminho, decomposicao, proveniencias)
+        capturado["comparacao_fontes"] = comparacao_fontes
+        return original_gerar(
+            self,
+            resultado,
+            dados,
+            config,
+            caminho,
+            decomposicao,
+            proveniencias,
+            comparacao_fontes,
+        )
 
     with patch.object(PDFReport, "gerar", mock_gerar):
         result = _pipeline_referencia(config_integracao, saida_dir, "pdf")

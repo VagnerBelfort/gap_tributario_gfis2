@@ -19,8 +19,7 @@ aliquotas:
 fontes:
   parquet_base_path: "./bases/bases_arrecadacao_cruzamento/gfis2_ouro/g_arrecadacao/"
   mdic_base_path: "./mdic_comex/dados/"
+  siscomex_snapshot_path: "./bases/siscomex_importacoes.csv"
 
-oracle:
-  dsn: "${ORACLE_DSN:-}"          # env var, vazio = desabilitado
-  user: "${ORACLE_USER:-}"
-  password: "${ORACLE_PASSWORD:-}"
+# Oracle Siscomex removido: o acesso só existe de dentro da rede da SEFAZ.
+# O snapshot agregado é materializado no cluster (scripts/snapshot_siscomex.py).

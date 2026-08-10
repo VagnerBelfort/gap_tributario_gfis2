@@ -279,3 +279,39 @@ def test_proveniencia_no_conteudo(resultado_2022, config_test, tmp_path):
     assert "IMESC" in texto
     assert "2026-06-08" in texto
     assert "2021" in texto  # caveat VAB
+
+
+def test_comparacao_de_fontes_no_conteudo(resultado_2022, config_test, tmp_path):
+    """A seção comparativa mostra as duas fontes de importações lado a lado.
+
+    A troca do MDIC pelo Siscomex move o gap de forma material, então o
+    relatório precisa expor a diferença e a evidência que a justifica — e não
+    apenas o número vencedor.
+    """
+    from gap_tributario.models import ComparacaoFonte
+
+    saida = tmp_path / "relatorios"
+    comparacao = [
+        ComparacaoFonte(
+            variavel="Importações",
+            fonte="Siscomex (SEFAZ-MA)",
+            valor_brl=Decimal("37470.59"),
+            observacoes="Domicílio fiscal do importador (TDS_UF_IMPORTADOR).",
+        ),
+        ComparacaoFonte(
+            variavel="Importações",
+            fonte="MDIC ComEx",
+            valor_brl=Decimal("3291.43"),
+            observacoes="SG_UF_NCM é local de desembaraço, não domicílio fiscal.",
+        ),
+    ]
+
+    arquivo = ExcelReport().gerar(
+        resultado_2022, None, config_test, saida, None, None, comparacao
+    )
+
+    texto = _extrair_texto_xlsx(arquivo)
+    assert "Compara" in texto
+    assert "Siscomex" in texto
+    assert "MDIC ComEx" in texto
+    assert "37470" in texto.replace(".", "").replace(",", "")

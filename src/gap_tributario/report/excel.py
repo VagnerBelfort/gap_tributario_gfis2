@@ -21,6 +21,7 @@ import xlsxwriter
 if TYPE_CHECKING:
     from gap_tributario.models import (
         AppConfig,
+        ComparacaoFonte,
         DadosVRR,
         DecomposicaoGap,
         Proveniencia,
@@ -117,6 +118,7 @@ class ExcelReport:
         caminho_saida: Path,
         decomposicao: "Optional[DecomposicaoGap]" = None,
         proveniencias: "Optional[List[Proveniencia]]" = None,
+        comparacao_fontes: "Optional[List[ComparacaoFonte]]" = None,
     ) -> Path:
         """Gera o relatório Excel.
 
@@ -127,6 +129,7 @@ class ExcelReport:
             caminho_saida: Diretório de saída para o arquivo Excel
             decomposicao: Decomposição policy/compliance (opcional, quando há renúncia)
             proveniencias: Lista de Proveniencia por variável (opcional)
+            comparacao_fontes: Leituras alternativas da mesma variável (opcional)
 
         Returns:
             Path para o arquivo Excel gerado
@@ -146,7 +149,9 @@ class ExcelReport:
         arquivo = caminho_saida / nome_arquivo
 
         try:
-            self._gerar_workbook(resultado, config, arquivo, decomposicao, proveniencias)
+            self._gerar_workbook(
+            resultado, config, arquivo, decomposicao, proveniencias, comparacao_fontes
+        )
         except OSError as e:
             raise OSError(f"Não foi possível escrever o arquivo de saída '{arquivo}': {e}") from e
 
@@ -162,6 +167,7 @@ class ExcelReport:
         arquivo: Path,
         decomposicao: "Optional[DecomposicaoGap]" = None,
         proveniencias: "Optional[List[Proveniencia]]" = None,
+        comparacao_fontes: "Optional[List[ComparacaoFonte]]" = None,
     ) -> None:
         """Cria o workbook Excel com todas as seções."""
         workbook = xlsxwriter.Workbook(str(arquivo))
@@ -430,6 +436,23 @@ class ExcelReport:
             for caveat in _CAVEATS_COBERTURA:
                 ws.merge_range(linha, 0, linha, 1, f"• {caveat}")
                 linha += 1
+
+            linha += 1
+
+        # === 5. COMPARAÇÃO DE FONTES ===
+        if comparacao_fontes:
+            ws.merge_range(linha, 0, linha, 1, "5. Comparação de Fontes", fmt_secao)
+            linha += 1
+
+            for i, c in enumerate(comparacao_fontes):
+                fmt_l = fmt_label if i % 2 == 0 else fmt_label_par
+                fmt_v = fmt_valor if i % 2 == 0 else fmt_linha_par
+                ws.write(linha, 0, f"{c.variavel} — {c.fonte}", fmt_l)
+                ws.write(linha, 1, f"R$ {c.valor_brl:,.2f} mi", fmt_v)
+                linha += 1
+                if c.observacoes:
+                    ws.merge_range(linha, 0, linha, 1, f"  {c.observacoes}")
+                    linha += 1
 
             linha += 1
 

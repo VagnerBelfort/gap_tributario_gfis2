@@ -319,9 +319,7 @@ class TestAppConfig:
             ],
             parquet_base_path=Path("./bases"),
             mdic_base_path=Path("./mdic"),
-            oracle_dsn=None,
-            oracle_user=None,
-            oracle_password=None,
+            siscomex_snapshot_path=Path("/tmp/siscomex.csv"),
             output_path=Path("./output"),
         )
 
@@ -356,9 +354,7 @@ class TestAppConfig:
             ],
             parquet_base_path=Path("./bases"),
             mdic_base_path=Path("./mdic"),
-            oracle_dsn=None,
-            oracle_user=None,
-            oracle_password=None,
+            siscomex_snapshot_path=Path("/tmp/siscomex.csv"),
             output_path=Path("./output"),
         )
         # Período 2010 não está coberto por config com range 2015-2022

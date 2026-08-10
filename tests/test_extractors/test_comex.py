@@ -522,7 +522,13 @@ def test_sem_capitulos_transito_nao_filtra(tmp_path):
 
 
 def test_capitulos_transito_default_carrega_do_yaml(tmp_path):
-    """Sem passar capitulos_transito, carrega config/ncm_transito.yaml (cap.27/31)."""
+    """Sem argumento, carrega config/ncm_transito.yaml — hoje vazio, sem filtro.
+
+    O filtro cap.27/31 foi aposentado: medimos no Siscomex que 90% do cap.27 e
+    70% do cap.31 despachados no MA pertencem a importadores maranhenses, então
+    excluí-los removia importação legítima. O YAML segue existindo como registro
+    histórico, com lista vazia.
+    """
     csv_dir = tmp_path / "mdic_default"
     csv_dir.mkdir()
     imp = (
@@ -533,7 +539,7 @@ def test_capitulos_transito_default_carrega_do_yaml(tmp_path):
     exp = "CO_ANO;CO_MES;SG_UF_NCM;VL_FOB\n2022;1;MA;2000000\n"
     (csv_dir / "IMP_2022.csv").write_text(imp, encoding="latin-1")
     (csv_dir / "EXP_2022.csv").write_text(exp, encoding="latin-1")
-    # Não passa capitulos_transito → deve usar o YAML do projeto (27, 31).
+    # Não passa capitulos_transito → usa o YAML do projeto, hoje sem capítulos.
     extractor = ComexExtractor(mdic_base_path=str(csv_dir))
     _, imp_brl = extractor.extract(PeriodoCalculo(ano=2022), PTAX_MOCK)
-    assert imp_brl == Decimal("5.0")  # cap.27 excluído pelo default
+    assert imp_brl == Decimal("35.0")  # 7 M USD × 5 PTAX — nada excluído

@@ -592,35 +592,6 @@ def test_os_error_geracao_relatorio_retorna_exit_2(config_path, saida):
 # ---------------------------------------------------------------------------
 
 
-def test_siscomex_sem_oracle_dsn_nao_aborta(config_path, saida):
-    """--siscomex sem oracle_dsn configurado não aborta — apenas avisa e continua."""
-    with _mock_extractors():
-        with patch(
-            "sys.argv",
-            [
-                "gap-tributario",
-                "--periodo",
-                "2022",
-                "--siscomex",
-                "--formato",
-                "pdf",
-                "--config",
-                config_path,
-                "--saida",
-                str(saida),
-            ],
-        ):
-            result = run()
-
-    # oracle_dsn está vazio no config de teste → warning silencioso, continua
-    assert result == 0
-
-
-# ---------------------------------------------------------------------------
-# Testes de --verbose
-# ---------------------------------------------------------------------------
-
-
 def test_verbose_flag_nao_causa_erro(config_path, saida):
     """--verbose não deve causar erros e retorna exit(0)."""
     with _mock_extractors():

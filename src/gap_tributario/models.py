@@ -165,6 +165,21 @@ class Proveniencia:
 
 
 @dataclass
+class ComparacaoFonte:
+    """Valor que uma fonte alternativa daria para a mesma variável da fórmula.
+
+    Existe porque a troca do MDIC pelo Siscomex nas importações move o gap de
+    forma material: o relatório mostra as duas leituras lado a lado, em vez de
+    apresentar só a vencedora como se não houvesse escolha metodológica.
+    """
+
+    variavel: str  # ex.: "Importações"
+    fonte: str  # ex.: "Siscomex (SEFAZ-MA)", "MDIC ComEx"
+    valor_brl: Decimal  # em R$ milhões, mesma unidade da fórmula
+    observacoes: str = ""  # por que as fontes divergem
+
+
+@dataclass
 class ConfigAliquota:
     """Configuração de alíquota por período."""
 
@@ -181,9 +196,9 @@ class AppConfig:
     aliquotas: List[ConfigAliquota]
     parquet_base_path: Path
     mdic_base_path: Path
-    oracle_dsn: Optional[str]  # None se Siscomex desabilitado
-    oracle_user: Optional[str]
-    oracle_password: Optional[str]
+    # Snapshot agregado do Siscomex, materializado no cluster da SEFAZ por
+    # scripts/snapshot_siscomex.py. Ausente = cascata cai para o MDIC ComEx.
+    siscomex_snapshot_path: Path
     output_path: Path
 
     def get_aliquota(self, periodo: PeriodoCalculo) -> Decimal:

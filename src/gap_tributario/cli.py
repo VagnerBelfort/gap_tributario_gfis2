@@ -33,7 +33,8 @@ def create_parser() -> argparse.ArgumentParser:
 Exemplos:
   python -m gap_tributario --periodo 2022
   python -m gap_tributario --periodo 2022-T1 --formato pdf --saida ./relatorios/
-  python -m gap_tributario --periodo 2023 --formato pdf excel --siscomex
+  python -m gap_tributario --periodo 2023 --formato pdf excel
+  python -m gap_tributario --periodo 2022 --imp-incluir-ni  # sensibilidade
         """,
     )
 
@@ -76,10 +77,13 @@ Exemplos:
     )
 
     parser.add_argument(
-        "--siscomex",
+        "--imp-incluir-ni",
         action="store_true",
         default=False,
-        help="Habilitar enriquecimento via Oracle Siscomex (requer credenciais)",
+        help=(
+            "Somar às importações as DIs cujo importador não pôde ser atribuído "
+            "a uma UF (teto da análise de sensibilidade)"
+        ),
     )
 
     parser.add_argument(
@@ -160,8 +164,13 @@ def run() -> int:
     from gap_tributario.extractors.imesc_pib import ImescPibExtractor
     from gap_tributario.extractors.ptax import PTAXExtractor
     from gap_tributario.extractors.sigdef import SigdefIcmsExtractor
-    from gap_tributario.extractors.siscomex import SiscomexExtractor
-    from gap_tributario.models import DadosVRR, PeriodoCalculo, Proveniencia
+    from gap_tributario.extractors.siscomex import SiscomexSnapshotExtractor
+    from gap_tributario.models import (
+        ComparacaoFonte,
+        DadosVRR,
+        PeriodoCalculo,
+        Proveniencia,
+    )
     from gap_tributario.report.excel import ExcelReport
     from gap_tributario.report.pdf import PDFReport
 
@@ -334,6 +343,49 @@ def run() -> int:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
 
+    # 3d-bis. Siscomex é a fonte nº1 das importações: só ele traz o domicílio
+    # fiscal do importador, que separa a importação maranhense da carga em
+    # trânsito por Itaqui. Sem snapshot ou sem cobertura no ano, cai para o MDIC.
+    fonte_importacoes = "MDIC ComEx"
+    comparacao_fontes: list = []
+    importacoes_mdic = importacoes_brl
+    if args.imp_manual is None:
+        try:
+            importacoes_brl = SiscomexSnapshotExtractor(
+                config.siscomex_snapshot_path,
+                incluir_nao_identificado=args.imp_incluir_ni,
+            ).extract(periodo)
+            fonte_importacoes = "Siscomex (SEFAZ-MA)"
+            logger.info(
+                "Importações MA %s (Siscomex): R$ %s milhões",
+                periodo.label,
+                importacoes_brl,
+            )
+            # A troca de fonte move o gap de forma material: o relatório mostra
+            # as duas leituras, em vez de só a vencedora da cascata.
+            comparacao_fontes = [
+                ComparacaoFonte(
+                    variavel="Importações",
+                    fonte="Siscomex (SEFAZ-MA)",
+                    valor_brl=importacoes_brl,
+                    observacoes=(
+                        "Valor aduaneiro (CIF) por domicílio fiscal do importador "
+                        "(TDS_UF_IMPORTADOR), excluindo trânsito por Itaqui."
+                    ),
+                ),
+                ComparacaoFonte(
+                    variavel="Importações",
+                    fonte="MDIC ComEx",
+                    valor_brl=importacoes_mdic,
+                    observacoes=(
+                        "FOB convertido pela PTAX. SG_UF_NCM é local de desembaraço, "
+                        "então mistura importação do MA com carga em trânsito."
+                    ),
+                ),
+            ]
+        except ExtractionError as exc:
+            logger.warning("Siscomex indisponível (%s). Mantendo MDIC ComEx.", exc)
+
     for variavel, manual in (
         ("Exportações", args.exp_manual),
         ("Importações", args.imp_manual),
@@ -348,6 +400,21 @@ def run() -> int:
                     observacoes="Override manual do operador.",
                 )
             )
+        elif variavel == "Importações" and fonte_importacoes.startswith("Siscomex"):
+            proveniencias.append(
+                Proveniencia(
+                    variavel=variavel,
+                    origem="Siscomex (SEFAZ-MA)",
+                    fonte="APL_SISCOMEX (Oracle C3) — snapshot agregado; TDS_UF_IMPORTADOR=MA",
+                    data_extracao=data_extracao,
+                    observacoes=(
+                        "Valor aduaneiro (CIF) por domicílio fiscal do importador, "
+                        "excluindo carga em trânsito por Itaqui. DIs sem UF atribuída "
+                        + ("incluídas" if args.imp_incluir_ni else "excluídas")
+                        + " (~5% do total em 2022)."
+                    ),
+                )
+            )
         else:
             proveniencias.append(
                 Proveniencia(
@@ -355,41 +422,12 @@ def run() -> int:
                     origem="MDIC ComEx",
                     fonte="ComexStat (VL_FOB USD × PTAX → BRL); filtro SG_UF_NCM=MA",
                     data_extracao=data_extracao,
-                    observacoes="FOB em USD convertido pela PTAX média do período.",
+                    observacoes=(
+                        "FOB em USD convertido pela PTAX média do período. "
+                        "SG_UF_NCM é local de desembaraço, não domicílio fiscal."
+                    ),
                 )
             )
-
-    # 3e. Oracle Siscomex — enriquecimento opcional
-    if args.siscomex:
-        if not config.oracle_dsn:
-            logger.warning(
-                "--siscomex habilitado mas oracle_dsn não configurado em %s. "
-                "Ignorando enriquecimento Siscomex.",
-                args.config,
-            )
-        else:
-            try:
-                df_siscomex = SiscomexExtractor(
-                    config.oracle_dsn,
-                    config.oracle_user or "",
-                    config.oracle_password or "",
-                ).extract(periodo)
-                if len(df_siscomex) > 0:
-                    total_icms_siscomex = df_siscomex["valor_icms_devido"].sum()
-                    logger.info(
-                        "Siscomex: %d DIs MA %s — ICMS devido total: R$ %.2f",
-                        len(df_siscomex),
-                        periodo.label,
-                        total_icms_siscomex,
-                    )
-                else:
-                    logger.warning(
-                        "Siscomex: nenhuma DI encontrada para MA %s.",
-                        periodo.label,
-                    )
-            except ExtractionError as exc:
-                print(f"Erro: {exc}", file=sys.stderr)
-                return 2
 
     # === Estágio 4: VALIDATE — Construir DadosVRR ===
     try:
@@ -447,11 +485,23 @@ def run() -> int:
         try:
             if formato == "pdf":
                 arquivo = PDFReport().gerar(
-                    resultado, dados_vrr, config, config.output_path, decomposicao, proveniencias
+                    resultado,
+                    dados_vrr,
+                    config,
+                    config.output_path,
+                    decomposicao,
+                    proveniencias,
+                    comparacao_fontes,
                 )
             else:  # formato == "excel"
                 arquivo = ExcelReport().gerar(
-                    resultado, dados_vrr, config, config.output_path, decomposicao, proveniencias
+                    resultado,
+                    dados_vrr,
+                    config,
+                    config.output_path,
+                    decomposicao,
+                    proveniencias,
+                    comparacao_fontes,
                 )
             arquivos_gerados.append(arquivo)
             logger.info("Relatório gerado: %s", arquivo)

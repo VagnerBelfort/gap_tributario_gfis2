@@ -41,10 +41,8 @@ aliquotas:
     aliquota: 0.18
     legislacao: "Teste"
 
-oracle:
-  dsn: "${ORACLE_DSN:-}"
-  user: "${ORACLE_USER:-}"
-  password: "${ORACLE_PASSWORD:-}"
+fontes:
+  siscomex_snapshot_path: "${SISCOMEX_SNAPSHOT:-}"
 """
 
 YAML_SEM_FONTES = """\
@@ -136,44 +134,32 @@ class TestLoadConfig:
         with pytest.raises(ValueError):
             load_config(str(yaml_aliq_vazia))
 
-    def test_resolucao_env_var_nao_definida_retorna_none(self, tmp_path: Path) -> None:
-        """${ORACLE_DSN:-} deve resultar em oracle_dsn=None quando env var não definida."""
+    def test_resolucao_env_var_nao_definida_usa_default(self, tmp_path: Path) -> None:
+        """${VAR:-} sem env var definida cai no caminho default, não em Path("")."""
         yaml_file = tmp_path / "test.yaml"
         yaml_file.write_text(YAML_COM_ENV_VARS, encoding="utf-8")
 
-        env_backup = os.environ.pop("ORACLE_DSN", None)
+        env_backup = os.environ.pop("SISCOMEX_SNAPSHOT", None)
         try:
             config = load_config(str(yaml_file))
-            # String vazia resultante de ${VAR:-} sem default deve ser convertida para None
-            assert config.oracle_dsn is None
+            assert config.siscomex_snapshot_path == Path("./bases/siscomex_importacoes.csv")
         finally:
             if env_backup is not None:
-                os.environ["ORACLE_DSN"] = env_backup
+                os.environ["SISCOMEX_SNAPSHOT"] = env_backup
 
     def test_resolucao_env_var_definida_retorna_valor(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """${ORACLE_DSN:-} deve retornar o valor da env var quando definida."""
+        """${VAR:-} deve retornar o valor da env var quando definida."""
         yaml_file = tmp_path / "test.yaml"
         yaml_file.write_text(YAML_COM_ENV_VARS, encoding="utf-8")
 
-        dsn_esperado = "10.1.1.132:1521/cent"
-        monkeypatch.setenv("ORACLE_DSN", dsn_esperado)
+        esperado = "/dados/siscomex_2022.csv"
+        monkeypatch.setenv("SISCOMEX_SNAPSHOT", esperado)
 
         config = load_config(str(yaml_file))
 
-        assert config.oracle_dsn == dsn_esperado
-
-    def test_credencial_oracle_vazia_resulta_em_none(self, tmp_path: Path) -> None:
-        """Credencial Oracle vazia ('') deve resultar em oracle_dsn=None no AppConfig."""
-        yaml_file = tmp_path / "aliquotas.yaml"
-        yaml_file.write_text(YAML_VALIDO_COMPLETO, encoding="utf-8")
-
-        config = load_config(str(yaml_file))
-
-        assert config.oracle_dsn is None
-        assert config.oracle_user is None
-        assert config.oracle_password is None
+        assert config.siscomex_snapshot_path == Path(esperado)
 
     def test_path_default_quando_fontes_ausentes(self, tmp_path: Path) -> None:
         """Path default deve ser usado quando seção 'fontes' está ausente."""

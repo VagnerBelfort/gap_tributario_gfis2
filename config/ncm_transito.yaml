@@ -1,21 +1,23 @@
-# Capítulos NCM em trânsito pelo Porto de Itaqui (não-domicílio fiscal do MA).
+# OBSOLETO — mantido como registro histórico. NÃO reativar.
 #
-# O filtro SG_UF_NCM == "MA" do MDIC ComEx atribui ao Maranhão mercadorias que
-# apenas DESEMBARAÇAM em Itaqui mas seguem para outros estados (Tocantins, Pará,
-# Piauí...). Isso infla a importação do MA. A solução metodologicamente correta é
-# o Siscomex Oracle com a UF de destino/consumo (TDS_UF_IMPORTADOR); enquanto o
-# Oracle não está acessível, excluímos os capítulos NCM dominados por trânsito.
+# Este filtro partia da premissa de que os capítulos 27 (combustíveis) e 31
+# (fertilizantes) seriam "quase tudo trânsito" por Itaqui. A premissa nunca foi
+# medida: o que os dados do ComexStat mostravam era apenas que esses capítulos
+# DOMINAM as importações atribuídas ao MA (69,4% + 22,1%) — dominância que foi
+# lida, incorretamente, como trânsito.
 #
-# Empírico (IMP 2022 MA, ComexStat): das ~US$ 7,5 bi atribuídas ao MA,
-#   cap.27 (combustíveis) = 69,4% e cap.31 (fertilizantes) = 22,1% — quase tudo
-#   trânsito. O resíduo (~8,5%) é a importação não-combustível do MA.
+# Medição no Siscomex (APL_SISCOMEX, 2022, despachado no MA), por
+# TDS_UF_IMPORTADOR, que é o domicílio fiscal real:
 #
-# IMPORTANTE: este é um ATALHO conservador. Pode remover combustível/fertilizante
-# efetivamente consumido no MA (subestima a importação → enviesa o gap p/ baixo).
-# Aplica-se SOMENTE às importações; as exportações não sofrem do trânsito.
+#   cap.27 → importador MA: R$ 26,45 bi | outra UF: R$ 2,89 bi  →  9,8% trânsito
+#   cap.31 → importador MA: R$  7,87 bi | outra UF: R$ 1,73 bi  → 15,4% trânsito
 #
-# Capítulo = 2 primeiros dígitos do código NCM (8 dígitos).
+# Ou seja, o filtro descartava R$ 34,3 bi de importação legítima do Maranhão
+# para remover R$ 4,6 bi de trânsito. Em 2022 ele entregava R$ 3,3 bi contra os
+# R$ 37,5 bi medidos no Siscomex.
+#
+# A fonte correta é o snapshot do Siscomex (config/fontes.yaml → importacoes).
+# Lista vazia mantém o filtro desligado caso o ComexExtractor seja usado como
+# fallback nos anos sem cobertura do Siscomex.
 
-capitulos_transito:
-  - 27   # Combustíveis minerais, óleos minerais (petróleo e derivados)
-  - 31   # Adubos e fertilizantes
+capitulos_transito: []
