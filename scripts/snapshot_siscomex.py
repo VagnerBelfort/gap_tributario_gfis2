@@ -115,6 +115,11 @@ def main():
     # correta na maioria e disse MA em 12 casos (~9%), provavelmente inscrição
     # estadual de substituto tributário sediado fora. É a margem de erro do
     # método, e ela empurra levemente para cima.
+    # Um CNPJ pode ter mais de uma inscrição estadual e, com isso, mais de uma
+    # uf_icms. dropDuplicates escolheria uma arbitrariamente, e o snapshot
+    # deixaria de ser reprodutível — o golden mudaria sem o dado mudar. Aqui,
+    # CNPJ com UFs conflitantes fica sem atribuição (vira NI), que é o
+    # comportamento honesto: não sabemos qual é o domicílio.
     cadastro = (
         spark.table(TABELA_CADASTRO)
         .filter(F.col("cnpj").isNotNull() & F.col("uf_icms").isNotNull())
@@ -122,13 +127,28 @@ def main():
             _norm_cnpj(F.col("cnpj")).alias("cnpj_norm"),
             F.trim(F.col("uf_icms")).alias("uf_cadastro"),
         )
-        .dropDuplicates(["cnpj_norm"])
+        .distinct()
+        .groupBy("cnpj_norm")
+        .agg(
+            F.min("uf_cadastro").alias("uf_cadastro"),
+            F.countDistinct("uf_cadastro").alias("n_ufs"),
+        )
+        .filter(F.col("n_ufs") == 1)
+        .drop("n_ufs")
     )
 
     itens = itens.withColumn("cnpj_norm", _norm_cnpj(F.col("cnpj")))
+    # nullif: UF em branco (CHAR do Oracle preenchido com espaços) sobreviveria
+    # ao coalesce como string vazia e a linha não cairia nem em MA nem em NI —
+    # sumiria do total e do teto de sensibilidade. Não ocorre nos dados atuais,
+    # mas é barato garantir.
     resolvido = itens.join(cadastro, on="cnpj_norm", how="left").withColumn(
         "uf_final",
-        F.coalesce(F.trim(F.col("uf_importador")), F.col("uf_cadastro"), F.lit("NI")),
+        F.coalesce(
+            F.nullif(F.trim(F.col("uf_importador")), F.lit("")),
+            F.nullif(F.trim(F.col("uf_cadastro")), F.lit("")),
+            F.lit("NI"),
+        ),
     )
 
     # Diagnóstico: quanto o cadastro resolveu do que estava nulo. 'NI' aqui
@@ -136,7 +156,7 @@ def main():
     # com a string literal 'NI' que a coluna `uf` usa para pessoa física.
     print("\n=== RESOLUCAO DA UF NULA PELO CADASTRO ===")
     (
-        resolvido.filter(F.col("uf_importador").isNull())
+        resolvido.filter(F.nullif(F.trim(F.col("uf_importador")), F.lit("")).isNull())
         .groupBy("uf_final")
         .agg(F.countDistinct("num_decl").alias("dis"), F.sum("cif").alias("cif"))
         .orderBy(F.desc("cif"))

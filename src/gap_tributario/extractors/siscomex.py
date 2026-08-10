@@ -59,6 +59,12 @@ class SiscomexSnapshotExtractor:
         self.snapshot_path = Path(snapshot_path)
         self.incluir_nao_identificado = incluir_nao_identificado
 
+    def _scan(self) -> "pl.LazyFrame":
+        """Lê o snapshot conforme a extensão: .parquet ou CSV com ';'."""
+        if self.snapshot_path.suffix.lower() == ".parquet":
+            return pl.scan_parquet(self.snapshot_path)
+        return pl.scan_csv(self.snapshot_path, separator=";")
+
     def extract(self, periodo: PeriodoCalculo) -> Decimal:
         """Extrai as importações do importador maranhense no período.
 
@@ -76,15 +82,27 @@ class SiscomexSnapshotExtractor:
             )
 
         ufs = [_UF_MA, _UF_NAO_IDENTIFICADA] if self.incluir_nao_identificado else [_UF_MA]
-        lf = pl.scan_csv(self.snapshot_path, separator=";").filter(
-            (pl.col("ano") == periodo.ano) & (pl.col("uf_importador").is_in(ufs))
-        )
-        if not periodo.is_anual:
-            lf = lf.filter(pl.col("trimestre") == periodo.trimestre)
 
-        resumo = lf.select(
-            pl.col("cif_brl").sum().alias("cif"), pl.len().alias("linhas")
-        ).collect()
+        # Snapshot corrompido, truncado ou gerado por uma versão antiga do job
+        # levanta erro cru do polars. Sem traduzir para ExtractionError, o cli
+        # não captura e a cascata nunca cai para o MDIC.
+        try:
+            lf = self._scan().filter(
+                (pl.col("ano") == periodo.ano) & (pl.col("uf_importador").is_in(ufs))
+            )
+            if not periodo.is_anual:
+                lf = lf.filter(pl.col("trimestre") == periodo.trimestre)
+
+            resumo = lf.select(
+                pl.col("cif_brl").sum().fill_null(0).alias("cif"), pl.len().alias("linhas")
+            ).collect()
+        except pl.exceptions.PolarsError as exc:
+            raise ExtractionError(
+                f"Snapshot do Siscomex em formato inesperado ('{self.snapshot_path}'): "
+                f"{exc}. Regere-o com scripts/snapshot_siscomex.py. "
+                f"Caindo para a próxima fonte da cascata (MDIC ComEx)."
+            ) from exc
+
         if resumo["linhas"].item() == 0:
             raise ExtractionError(
                 f"Snapshot do Siscomex não tem importações do {_UF_MA} para "

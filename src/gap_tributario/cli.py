@@ -409,9 +409,14 @@ def run() -> int:
                     data_extracao=data_extracao,
                     observacoes=(
                         "Valor aduaneiro (CIF) por domicílio fiscal do importador, "
-                        "excluindo carga em trânsito por Itaqui. DIs sem UF atribuída "
+                        "excluindo carga em trânsito por Itaqui. DIs sem UF na "
+                        "declaração são atribuídas pelo cadastro de contribuintes "
+                        "(uf_icms); as que restam sem atribuição estão "
                         + ("incluídas" if args.imp_incluir_ni else "excluídas")
-                        + " (~5% do total em 2022)."
+                        + " (30 DIs, R$ 9,1 mi em 2022 — 0,02% do total). "
+                        "Ressalva: inscrição estadual no MA não é domicílio fiscal no "
+                        "MA, e o método discordou do Siscomex em ~9% do grupo de "
+                        "controle de outras UFs, viés que empurra levemente para cima."
                     ),
                 )
             )

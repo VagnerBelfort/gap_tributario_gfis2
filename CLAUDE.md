@@ -15,8 +15,11 @@ VRR        = ICMS Arrecadado / Potencial
 Gap        = Potencial − ICMS Arrecadado
 ```
 
-Referência de validação MA 2022: VRR ≈ 0,518 (ICMS=10.917, VAB=124.859,
-Exp=29.754, Imp=21.924, Alíq=0,18).
+Referência HISTÓRICA de validação MA 2022: VRR ≈ 0,518 (ICMS=10.917,
+VAB=124.859, Exp=29.754, Imp=21.924, Alíq=0,18). Esses são os valores fixos dos
+goldens de fórmula em `tests/engine/` — eles testam a aritmética, não as fontes.
+Com as fontes atuais (ICMS do SIGDEF, importações do Siscomex) o 2022 real dá
+VRR ≈ 0,473 e gap ≈ R$ 12.792M. Não confundir os dois.
 
 ## Arquitetura — pipeline de 7 estágios
 
@@ -85,6 +88,18 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
   UF, o cadastro disse MA em 12 (~9%), provavelmente substituto tributário com
   inscrição estadual no MA. O viés empurra levemente para cima.
 
+- **Assimetria CIF × FOB na base**: `Base = VAB − Exportações + Importações`
+  hoje mistura conceitos — importações vêm do Siscomex em **CIF** (inclui frete
+  e seguro), exportações vêm do MDIC em **FOB**. Isso infla a perna de
+  importação em ~10-15% frente à de exportação. Não há correção simples: o
+  ComexStat não publica CIF por UF. Registrar na proveniência.
+
+  Já a assimetria de *critério geográfico* foi auditada e **não** existe: o
+  ComexStat usa estado produtor nas exportações e origem/destino declarada nas
+  importações. Teste de magnitude: o MA exportou US$ 5,74 bi em 2022, enquanto
+  o minério de Carajás escoado por Ponta da Madeira sozinho passa de US$ 15 bi
+  — ele é atribuído ao Pará, então o trânsito não contamina a exportação.
+
 - **Balde `NI`**: hoje 30 DIs e R$ 9,1 mi (era R$ 2,23 bi antes da resolução por
   CNPJ). Excluídas por padrão; `--imp-incluir-ni` dá o teto da sensibilidade.
 
@@ -148,7 +163,7 @@ importações não os quebra). O golden da fonte fica em
 - Cobertura ≥ 80% total, ≥ 85% em módulos novos
 - `ruff check src/` limpo
 - Golden 2022 (VRR=0,518 ± 0,002) passa
-- Golden Siscomex: importações 2022 = R$ 37.471M (± R$ 1M) a partir de
+- Golden Siscomex: importações 2022 = R$ 39.704M (± R$ 1M) a partir de
   `bases/siscomex_importacoes.csv`; pula se o snapshot não estiver presente
 
 ## Skills recomendadas (Claude Code)

@@ -155,3 +155,26 @@ def test_golden_2022_trimestres_somam_o_ano():
     # Tolerância de centavos: cada período é arredondado independentemente, então
     # quatro arredondamentos podem divergir do arredondamento único do ano.
     assert abs(soma_trimestres - extractor.extract(PeriodoCalculo(ano=2022))) <= Decimal("0.05")
+
+
+def test_snapshot_com_colunas_faltando_levanta_extraction_error(tmp_path):
+    """Snapshot corrompido/desatualizado cai para o MDIC, não estoura traceback.
+
+    O cli.py só captura ExtractionError; qualquer exceção crua do polars sobe
+    e derruba a execução inteira em vez de acionar a próxima fonte da cascata.
+    """
+    ruim = tmp_path / "siscomex.csv"
+    pl.DataFrame({"ano": [2022], "cif_brl": [1.0]}).write_csv(ruim, separator=";")
+
+    with pytest.raises(ExtractionError, match="inesperado|coluna|formato"):
+        SiscomexSnapshotExtractor(ruim).extract(PeriodoCalculo(ano=2022))
+
+
+def test_snapshot_parquet_e_lido(tmp_path):
+    """O docstring promete .parquet — então .parquet tem que funcionar."""
+    caminho = tmp_path / "siscomex.parquet"
+    pl.DataFrame(
+        [(2022, 1, 27, "MA", "MA", 10, 5_000_000_000.0)], schema=_COLUNAS, orient="row"
+    ).write_parquet(caminho)
+
+    assert SiscomexSnapshotExtractor(caminho).extract(PeriodoCalculo(ano=2022)) == Decimal("5000")

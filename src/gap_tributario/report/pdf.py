@@ -164,8 +164,8 @@ class PDFReport:
                 compress=0,
             )
             story = self._construir_story(
-            resultado, config, decomposicao, proveniencias, comparacao_fontes
-        )
+                resultado, config, decomposicao, proveniencias, comparacao_fontes
+            )
             doc.build(story)
         except OSError as e:
             raise OSError(

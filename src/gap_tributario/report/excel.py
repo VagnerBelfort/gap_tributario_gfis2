@@ -150,8 +150,13 @@ class ExcelReport:
 
         try:
             self._gerar_workbook(
-            resultado, config, arquivo, decomposicao, proveniencias, comparacao_fontes
-        )
+                resultado,
+                config,
+                arquivo,
+                decomposicao,
+                proveniencias,
+                comparacao_fontes,
+            )
         except OSError as e:
             raise OSError(f"Não foi possível escrever o arquivo de saída '{arquivo}': {e}") from e
 
