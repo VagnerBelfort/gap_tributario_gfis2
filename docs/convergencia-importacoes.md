@@ -91,6 +91,13 @@ CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)
 ?@dataInicial='01-01-2022'&@dataFinalCotacao='12-31-2022'&\$format=json"
 ```
 
+A série completa se refaz por comando, sem rede da SEFAZ:
+
+```bash
+uv run python scripts/serie_mdic_ptax.py            # tabela do §3, das duas APIs
+uv run python scripts/serie_mdic_ptax.py --de 2011 --ate 2025
+```
+
 **Câmbio.** Usamos a média das cotações de **venda** do ano — 5,1655 para 2022 —,
 a mesma ponta que o pipeline aplica em todas as conversões. A SEFAZ informou
 5,1648, que é a média de compra; as duas diferem em 0,01% e não alteram
@@ -118,7 +125,8 @@ desvio fora do corredor sai como aviso no log e como sinalização no PDF e no
 Excel. São duas grandezas distintas, e o código as separa:
 
 - **Faixa observada** (`FAIXA_OBSERVADA`): +2,4% a +12,8%, o que foi medido. É o
-  que o relatório exibe como referência de leitura.
+  que o relatório exibe como referência de leitura, e o que
+  `scripts/serie_mdic_ptax.py` recalcula das fontes.
 - **Corredor de controle** (`CORREDOR_CONTROLE`): +2% a +13%, deliberadamente
   mais largo. O extremo inferior medido, 2022, é +2,368% — colar o controle no
   valor exibido reprovaria justamente o ano que o originou.

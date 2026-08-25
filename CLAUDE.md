@@ -69,7 +69,8 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
   o que o relatório exibe) de `CORREDOR_CONTROLE` (+2% a +13%, mais largo
   porque o extremo de 2022 é +2,368% e só arredonda para +2,4% na tela). Só
   vale para período anual. Tabela ano a ano em
-  `docs/convergencia-importacoes.md` §3.
+  `docs/convergencia-importacoes.md` §3, refeita por
+  `uv run python scripts/serie_mdic_ptax.py` (ComexStat + BCB, sem rede da SEFAZ).
 
 - **O MDIC não superestima as importações do MA** — a intuição de que ele
   infla por incluir trânsito por Itaqui está medida e é falsa: o MDIC fica
