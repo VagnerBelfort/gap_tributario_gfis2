@@ -19,10 +19,18 @@ vab:
     - manual         # --vab-manual
 
 importacoes:
+  # Siscomex: única fonte com o domicílio fiscal do importador
+  # (TDS_UF_IMPORTADOR), que separa a importação maranhense da carga em
+  # trânsito por Itaqui. Lido do snapshot agregado gerado no cluster da SEFAZ
+  # por scripts/snapshot_siscomex.py — o Oracle não é alcançável de fora.
+  # Cobertura confiável de 2013 em diante (2009-2012 têm poucas DIs).
+  # O MDIC entra como fallback, mas o SG_UF_NCM dele é local de desembaraço,
+  # então superestima o MA. NÃO reativar o filtro NCM cap.27/31: medimos que
+  # 90% do cap.27 e 70% do cap.31 são de importadores do MA.
   cascata:
-    - siscomex_oracle
-    - mdic_comex      # com filtro NCM cap.27/31 (config/ncm_transito.yaml)
-    - manual          # --imp-manual
+    - siscomex_snapshot  # SiscomexSnapshotExtractor (fonte nº1)
+    - mdic_comex         # ComexExtractor (fallback, anos <2013)
+    - manual             # --imp-manual
 
 exportacoes:
   cascata:

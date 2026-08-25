@@ -14,6 +14,9 @@ aliquotas:
 fontes:
   parquet_base_path: "./tests/fixtures/parquet/"
   mdic_base_path: "./tests/fixtures/csv/"
+  # Inexistente de propósito: os testes de integração exercitam a queda
+  # da cascata de importações para o MDIC ComEx.
+  siscomex_snapshot_path: "./tests/fixtures/_snapshot_ausente.csv"
 
 oracle:
   dsn: ""

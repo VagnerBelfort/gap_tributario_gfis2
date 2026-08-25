@@ -23,9 +23,12 @@ from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.platypus.flowables import HRFlowable
 
+from gap_tributario.report.formatacao import sufixo_desvio
+
 if TYPE_CHECKING:
     from gap_tributario.models import (
         AppConfig,
+        ComparacaoFonte,
         DadosVRR,
         DecomposicaoGap,
         Proveniencia,
@@ -122,6 +125,7 @@ class PDFReport:
         caminho_saida: Path,
         decomposicao: "Optional[DecomposicaoGap]" = None,
         proveniencias: "Optional[List[Proveniencia]]" = None,
+        comparacao_fontes: "Optional[List[ComparacaoFonte]]" = None,
     ) -> Path:
         """Gera o relatório PDF.
 
@@ -132,6 +136,7 @@ class PDFReport:
             caminho_saida: Diretório de saída para o arquivo PDF
             decomposicao: Decomposição policy/compliance (opcional, quando há renúncia)
             proveniencias: Lista de Proveniencia por variável (opcional)
+            comparacao_fontes: Leituras alternativas da mesma variável (opcional)
 
         Returns:
             Path para o arquivo PDF gerado
@@ -160,7 +165,9 @@ class PDFReport:
                 bottomMargin=2 * cm,
                 compress=0,
             )
-            story = self._construir_story(resultado, config, decomposicao, proveniencias)
+            story = self._construir_story(
+                resultado, config, decomposicao, proveniencias, comparacao_fontes
+            )
             doc.build(story)
         except OSError as e:
             raise OSError(
@@ -178,6 +185,7 @@ class PDFReport:
         config: "AppConfig",
         decomposicao: "Optional[DecomposicaoGap]" = None,
         proveniencias: "Optional[List[Proveniencia]]" = None,
+        comparacao_fontes: "Optional[List[ComparacaoFonte]]" = None,
     ) -> List:
         """Constrói a lista de flowables para o documento PDF."""
         estilos = getSampleStyleSheet()
@@ -569,6 +577,24 @@ class PDFReport:
             for caveat in _CAVEATS_COBERTURA:
                 story.append(Paragraph(f"&#x2022; <i>{caveat}</i>", estilo_normal))
 
+            story.append(Spacer(1, 0.3 * cm))
+
+        # === 5. COMPARAÇÃO DE FONTES ===
+        if comparacao_fontes:
+            story.append(Paragraph("5. Comparação de Fontes", estilo_secao))
+            story.append(
+                Paragraph(
+                    "Leituras alternativas da mesma variável. A fonte vencedora da "
+                    "cascata consta na seção de proveniência.",
+                    estilo_normal,
+                )
+            )
+            for c in comparacao_fontes:
+                linha = f"<b>{c.variavel} — {c.fonte}:</b> R$ {c.valor_brl:,.2f} mi"
+                linha += sufixo_desvio(c.comparacao, alerta_html=True)
+                if c.observacoes:
+                    linha += f" — {c.observacoes}"
+                story.append(Paragraph(linha, estilo_normal))
             story.append(Spacer(1, 0.3 * cm))
 
         story.append(Spacer(1, 0.5 * cm))

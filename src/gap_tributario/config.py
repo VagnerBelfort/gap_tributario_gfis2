@@ -104,11 +104,11 @@ def load_config(config_path: str = "./config/aliquotas.yaml") -> AppConfig:
     parquet_base_path = Path(fontes.get("parquet_base_path", "./bases/g_arrecadacao/ouro/"))
     mdic_base_path = Path(fontes.get("mdic_base_path", "./mdic_comex/dados/"))
 
-    # Processar configuração Oracle (opcional)
-    oracle_config = data.get("oracle", {})
-    oracle_dsn = oracle_config.get("dsn") or None
-    oracle_user = oracle_config.get("user") or None
-    oracle_password = oracle_config.get("password") or None
+    # `or` (e não .get com default) para que "${VAR:-}" não resolvido vire o
+    # default em vez de Path(""), que apontaria para o diretório corrente.
+    siscomex_snapshot_path = Path(
+        fontes.get("siscomex_snapshot_path") or "./bases/siscomex_importacoes.csv"
+    )
 
     # Diretório de saída (default)
     output_path = Path("./output/")
@@ -117,8 +117,6 @@ def load_config(config_path: str = "./config/aliquotas.yaml") -> AppConfig:
         aliquotas=aliquotas,
         parquet_base_path=parquet_base_path,
         mdic_base_path=mdic_base_path,
-        oracle_dsn=oracle_dsn,
-        oracle_user=oracle_user,
-        oracle_password=oracle_password,
+        siscomex_snapshot_path=siscomex_snapshot_path,
         output_path=output_path,
     )

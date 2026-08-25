@@ -51,9 +51,7 @@ def config_test(tmp_path: Path) -> AppConfig:
         ],
         parquet_base_path=tmp_path / "parquet",
         mdic_base_path=tmp_path / "mdic",
-        oracle_dsn=None,
-        oracle_user=None,
-        oracle_password=None,
+        siscomex_snapshot_path=tmp_path / "siscomex_importacoes.csv",
         output_path=tmp_path / "output",
     )
 
@@ -74,11 +72,9 @@ def config_yaml_path(tmp_path: Path) -> Path:
 fontes:
   parquet_base_path: "./bases/g_arrecadacao/ouro/"
   mdic_base_path: "./mdic_comex/dados/"
-
-oracle:
-  dsn: ""
-  user: ""
-  password: ""
+  # Caminho inexistente de propósito: sem isso os testes leriam o snapshot
+  # real do repositório e deixariam de ser herméticos.
+  siscomex_snapshot_path: "./tests/fixtures/_snapshot_ausente.csv"
 """
     config_file = tmp_path / "aliquotas.yaml"
     config_file.write_text(config_content, encoding="utf-8")

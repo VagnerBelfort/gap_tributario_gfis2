@@ -592,35 +592,6 @@ def test_os_error_geracao_relatorio_retorna_exit_2(config_path, saida):
 # ---------------------------------------------------------------------------
 
 
-def test_siscomex_sem_oracle_dsn_nao_aborta(config_path, saida):
-    """--siscomex sem oracle_dsn configurado não aborta — apenas avisa e continua."""
-    with _mock_extractors():
-        with patch(
-            "sys.argv",
-            [
-                "gap-tributario",
-                "--periodo",
-                "2022",
-                "--siscomex",
-                "--formato",
-                "pdf",
-                "--config",
-                config_path,
-                "--saida",
-                str(saida),
-            ],
-        ):
-            result = run()
-
-    # oracle_dsn está vazio no config de teste → warning silencioso, continua
-    assert result == 0
-
-
-# ---------------------------------------------------------------------------
-# Testes de --verbose
-# ---------------------------------------------------------------------------
-
-
 def test_verbose_flag_nao_causa_erro(config_path, saida):
     """--verbose não deve causar erros e retorna exit(0)."""
     with _mock_extractors():
@@ -749,3 +720,145 @@ def test_pipeline_ambos_formatos_imprime_dois_caminhos(config_path, saida, capsy
     captured = capsys.readouterr()
     assert "gap_icms_2022.pdf" in captured.out
     assert "gap_icms_2022.xlsx" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Proveniência do Siscomex
+# ---------------------------------------------------------------------------
+
+
+def test_proveniencia_siscomex_declara_ausencia_de_filtro_por_situacao(config_path, saida):
+    """Com o Siscomex vencendo a cascata, a proveniência das importações registra
+    que nenhuma DI foi filtrada por TDS_SITUACAO.
+
+    O campo S/N vem da Receita e a SEFAZ confirmou (24/08/2026) que não o usa;
+    a decisão vale R$ 12,5 bi em 2022 e precisa estar visível no relatório.
+    """
+    with _mock_extractors(), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=Decimal("39704"),
+    ), patch("gap_tributario.report.pdf.PDFReport.gerar") as gerar, patch(
+        "sys.argv",
+        [
+            "gap-tributario",
+            "--periodo",
+            "2022",
+            "--formato",
+            "pdf",
+            "--config",
+            config_path,
+            "--saida",
+            str(saida),
+        ],
+    ):
+        gerar.return_value = saida / "gap_icms_2022.pdf"
+        assert run() == 0
+
+    proveniencias = gerar.call_args.args[5]
+    (imp,) = [p for p in proveniencias if p.variavel == "Importações"]
+    assert imp.origem == "Siscomex (SEFAZ-MA)"
+    assert "TDS_SITUACAO" in imp.observacoes
+    assert "sem filtro" in imp.observacoes
+
+
+# ---------------------------------------------------------------------------
+# Validação cruzada Siscomex × MDIC
+# ---------------------------------------------------------------------------
+
+
+def test_comparacao_de_fontes_carrega_o_desvio_do_siscomex_sobre_o_mdic(config_path, saida):
+    """A leitura do MDIC vem acompanhada do desvio da fonte vencedora sobre ela.
+
+    O desvio é controle de qualidade: de 2019 a 2025 fica entre +2,4% e +12,8%,
+    a assinatura de CIF sobre FOB. Fora do corredor, o dado precisa de exame.
+    """
+    with _mock_extractors(imp=Decimal("38785.57")), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=Decimal("39703.79"),
+    ), patch("gap_tributario.report.pdf.PDFReport.gerar") as gerar, patch(
+        "sys.argv",
+        [
+            "gap-tributario",
+            "--periodo",
+            "2022",
+            "--formato",
+            "pdf",
+            "--config",
+            config_path,
+            "--saida",
+            str(saida),
+        ],
+    ):
+        gerar.return_value = saida / "gap_icms_2022.pdf"
+        assert run() == 0
+
+    comparacoes = gerar.call_args.args[6]
+    (mdic,) = [c for c in comparacoes if c.fonte == "MDIC ComEx"]
+    assert mdic.comparacao.desvio_pct == pytest.approx(Decimal("2.37"), abs=Decimal("0.01"))
+    assert mdic.comparacao.dentro_do_corredor is True
+
+
+def test_leitura_do_mdic_explica_a_divergencia_por_cif_sobre_fob(config_path, saida):
+    """O texto que acompanha o MDIC declara os dois efeitos opostos.
+
+    A explicação anterior atribuía a diferença ao trânsito por Itaqui, o que a
+    série 2019-2025 contradiz: o MDIC fica abaixo do Siscomex em todos os anos,
+    porque o desconto do FOB supera o trânsito.
+    """
+    with _mock_extractors(imp=Decimal("38785.57")), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=Decimal("39703.79"),
+    ), patch("gap_tributario.report.pdf.PDFReport.gerar") as gerar, patch(
+        "sys.argv",
+        [
+            "gap-tributario",
+            "--periodo",
+            "2022",
+            "--formato",
+            "pdf",
+            "--config",
+            config_path,
+            "--saida",
+            str(saida),
+        ],
+    ):
+        gerar.return_value = saida / "gap_icms_2022.pdf"
+        assert run() == 0
+
+    comparacoes = gerar.call_args.args[6]
+    (mdic,) = [c for c in comparacoes if c.fonte == "MDIC ComEx"]
+    assert "FOB" in mdic.observacoes
+    assert "CIF" in mdic.observacoes
+    assert "+2,4%" in mdic.observacoes and "+12,8%" in mdic.observacoes
+
+
+def test_periodo_trimestral_nao_aplica_o_corredor_anual(config_path, saida):
+    """Num trimestre o desvio é calculado, mas não julgado.
+
+    A faixa +2,4% a +12,8% foi medida em totais anuais; aplicá-la a um trimestre
+    produziria alarme falso no log e no relatório.
+    """
+    with _mock_extractors(imp=Decimal("38785.57")), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=Decimal("39703.79"),
+    ), patch("gap_tributario.report.pdf.PDFReport.gerar") as gerar, patch(
+        "sys.argv",
+        [
+            "gap-tributario",
+            "--periodo",
+            "2022-T1",
+            "--formato",
+            "pdf",
+            "--config",
+            config_path,
+            "--saida",
+            str(saida),
+        ],
+    ):
+        gerar.return_value = saida / "gap_icms_2022-T1.pdf"
+        assert run() == 0
+
+    comparacoes = gerar.call_args.args[6]
+    (mdic,) = [c for c in comparacoes if c.fonte == "MDIC ComEx"]
+    assert mdic.comparacao.desvio_pct is not None
+    assert mdic.comparacao.dentro_do_corredor is None
