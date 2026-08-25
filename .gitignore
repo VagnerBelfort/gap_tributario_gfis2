@@ -72,3 +72,9 @@ dmypy.json
 # data
 mdic_comex/dados/
 output/
+.gstack/
+
+# midia bruta de interlocucao (transcricao versionada, midia nao)
+resposta_jomar/*.opus
+resposta_jomar/*.jpeg
+resposta_jomar/*.wav

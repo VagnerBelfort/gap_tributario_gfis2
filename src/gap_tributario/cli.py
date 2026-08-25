@@ -409,7 +409,11 @@ def run() -> int:
                     data_extracao=data_extracao,
                     observacoes=(
                         "Valor aduaneiro (CIF) por domicílio fiscal do importador, "
-                        "excluindo carga em trânsito por Itaqui. DIs sem UF na "
+                        "excluindo carga em trânsito por Itaqui. Todas as DIs "
+                        "desembaraçadas entram, sem filtro por TDS_SITUACAO (S/N): "
+                        "o campo é herdado da Receita Federal e a SEFAZ-MA confirmou "
+                        "em 24/08/2026 que não o utiliza; as DIs 'N' desembaraçam e "
+                        "recolhem II/IPI. DIs sem UF na "
                         "declaração são atribuídas pelo cadastro de contribuintes "
                         "(uf_icms); as que restam sem atribuição estão "
                         + ("incluídas" if args.imp_incluir_ni else "excluídas")

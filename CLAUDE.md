@@ -18,6 +18,9 @@ Gap        = Potencial − ICMS Arrecadado
 Referência HISTÓRICA de validação MA 2022: VRR ≈ 0,518 (ICMS=10.917,
 VAB=124.859, Exp=29.754, Imp=21.924, Alíq=0,18). Esses são os valores fixos dos
 goldens de fórmula em `tests/engine/` — eles testam a aritmética, não as fontes.
+O `Imp=21.924` vem da apresentação do 79º ENCAT e **não é uma apuração** (ver
+pitfall abaixo); como entrada de golden ele continua válido, porque o teste é
+da conta, não do dado.
 Com as fontes atuais (ICMS do SIGDEF, importações do Siscomex) o 2022 real dá
 VRR ≈ 0,473 e gap ≈ R$ 12.792M. Não confundir os dois.
 
@@ -55,12 +58,19 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
 
 ## Pontos de atenção (dívida e pitfalls)
 
-- **Importações vêm do Siscomex, não do MDIC**: o `SG_UF_NCM` do MDIC é local
-  de desembaraço, não domicílio fiscal — confirmado empiricamente, porque o FOB
-  do MDIC para o MA em 2022 (cap.27 R$ 27,2 bi; cap.31 R$ 8,7 bi) só fica
-  *abaixo* do CIF do Siscomex quando comparado ao universo "despachado no MA",
-  e FOB não pode exceder CIF do mesmo conjunto. A separação correta é
-  `TDS_UF_IMPORTADOR` no Siscomex.
+- **Importações vêm do Siscomex, não do MDIC**: o MDIC publica por UF do
+  produto, que não separa domicílio fiscal de local de desembaraço; o ICMS de
+  importação é devido no domicílio do importador. A separação correta é
+  `TDS_UF_IMPORTADOR` no Siscomex. O MDIC serve como **validação cruzada**, não
+  como fonte: 2019-2025, a nossa apuração (CIF, domicílio) fica de +2,4% a
+  +12,8% acima do MDIC (FOB × PTAX), mediana +6,8% — a assinatura esperada de
+  CIF sobre FOB. Tabela ano a ano em `docs/convergencia-importacoes.md` §3.
+
+- **O MDIC não superestima as importações do MA** — a intuição de que ele
+  infla por incluir trânsito por Itaqui está medida e é falsa: o MDIC fica
+  *abaixo* da nossa apuração em todos os anos de 2019 a 2025. O trânsito existe
+  (~0,1% a 9,7% do valor despachado), mas o desconto do FOB frente ao CIF é
+  maior que ele.
 
 - **O filtro NCM cap.27/31 estava errado — não reativar**: a premissa era que
   esses capítulos seriam "quase tudo trânsito". Medido no Siscomex (2022,
@@ -80,6 +90,19 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
   `TDS_SITUACAO = 'N'` **não** é cancelamento (essas DIs desembaraçam e pagam
   II/IPI, então entram); tipos de declaração `01` e nulo.
 
+- **`TDS_SITUACAO` (S/N) — confirmado pela SEFAZ, não filtrar**: em 24/08/2026
+  a SEFAZ-MA (Alan Lima, TI) respondeu por e-mail que o campo "vem diretamente
+  da Receita, não é utilizado aqui e pode ser desconsiderado". Todas as DIs
+  desembaraçadas entram (R$ 12,5 bi em 2022). Não construir flag "só S" no CLI.
+
+- **Os R$ 21,9 bi do 79º ENCAT não são uma apuração**: em 24/08/2026 o autor
+  do cálculo (Jomar, SEFAZ-MA) informou por áudio que o valor era "só uma
+  referência" para a apresentação, que o dado do sistema deles para 2022 é
+  R$ 38,7 bi e que a fonte é o MDIC. Não há memória de cálculo a reproduzir —
+  a caça à definição equivalente está encerrada. Transcrição em
+  `resposta_jomar/transcricao.md`; `scripts/reconciliar_encat_2022.py` segue no
+  repo como registro histórico.
+
 - **UF nula resolvida pelo cadastro**: DIs sem `TDS_UF_IMPORTADOR` são
   atribuídas via `gfis2_bronze.b_contribuinte.uf_icms` (join por CNPJ de 14
   dígitos). Usar `uf_icms`, **não** `uf` — esta é nula em 100% das linhas com
@@ -91,8 +114,9 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
 - **Assimetria CIF × FOB na base**: `Base = VAB − Exportações + Importações`
   hoje mistura conceitos — importações vêm do Siscomex em **CIF** (inclui frete
   e seguro), exportações vêm do MDIC em **FOB**. Isso infla a perna de
-  importação em ~10-15% frente à de exportação. Não há correção simples: o
-  ComexStat não publica CIF por UF. Registrar na proveniência.
+  importação em ~10-15% frente à de exportação. O ComexStat não publica CIF por
+  UF; a razão limpa entre os dois conceitos sai do próprio Siscomex, que traz
+  valor da mercadoria e valor aduaneiro na mesma DI. Registrar na proveniência.
 
   Já a assimetria de *critério geográfico* foi auditada e **não** existe: o
   ComexStat usa estado produtor nas exportações e origem/destino declarada nas
@@ -104,11 +128,12 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
   (`_ANO_COBERTURA_CONFIAVEL`). Antes disso a base tem 205 DIs em 2011 e 1.808
   em 2012, contra ~3.000/ano depois — somar o que existe devolveria um total
   muito abaixo do real com cara de número válido. Anos anteriores levantam
-  `ExtractionError` e caem para o MDIC, que cobre o período inteiro mas
-  **superestima** (inclui trânsito por Itaqui). A calibração do MDIC pela razão
-  de trânsito medida no Siscomex está decidida mas **não implementada** — até
-  lá, anos < 2013 não são entregáveis. Na prática o limite real é a arrecadação:
-  dados confiáveis só a partir de 2019.
+  `ExtractionError` e caem para o MDIC. O limite de 2013 tem confirmação
+  externa: em 2011 e 2012 o Siscomex fica 76% e 44% *abaixo* do MDIC, contra o
+  corredor de +2% a +13% de 2013 em diante. Calibrar o MDIC para cobrir
+  2011-2012 foi **descartado** — extrapolar um fator medido fora do período não
+  se sustenta, e o limite real do produto é a arrecadação: **o escopo de
+  análise é 2019 em diante**.
 
 - **Balde `NI`**: hoje 30 DIs e R$ 9,1 mi (era R$ 2,23 bi antes da resolução por
   CNPJ). Excluídas por padrão; `--imp-incluir-ni` dá o teto da sensibilidade.

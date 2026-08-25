@@ -720,3 +720,42 @@ def test_pipeline_ambos_formatos_imprime_dois_caminhos(config_path, saida, capsy
     captured = capsys.readouterr()
     assert "gap_icms_2022.pdf" in captured.out
     assert "gap_icms_2022.xlsx" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Proveniência do Siscomex
+# ---------------------------------------------------------------------------
+
+
+def test_proveniencia_siscomex_declara_ausencia_de_filtro_por_situacao(config_path, saida):
+    """Com o Siscomex vencendo a cascata, a proveniência das importações registra
+    que nenhuma DI foi filtrada por TDS_SITUACAO.
+
+    O campo S/N vem da Receita e a SEFAZ confirmou (24/08/2026) que não o usa;
+    a decisão vale R$ 12,5 bi em 2022 e precisa estar visível no relatório.
+    """
+    with _mock_extractors(), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=Decimal("39704"),
+    ), patch("gap_tributario.report.pdf.PDFReport.gerar") as gerar, patch(
+        "sys.argv",
+        [
+            "gap-tributario",
+            "--periodo",
+            "2022",
+            "--formato",
+            "pdf",
+            "--config",
+            config_path,
+            "--saida",
+            str(saida),
+        ],
+    ):
+        gerar.return_value = saida / "gap_icms_2022.pdf"
+        assert run() == 0
+
+    proveniencias = gerar.call_args.args[5]
+    (imp,) = [p for p in proveniencias if p.variavel == "Importações"]
+    assert imp.origem == "Siscomex (SEFAZ-MA)"
+    assert "TDS_SITUACAO" in imp.observacoes
+    assert "sem filtro" in imp.observacoes

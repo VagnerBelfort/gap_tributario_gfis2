@@ -11,7 +11,9 @@ Regras de negócio, todas apuradas empiricamente (diagnósticos 1-3):
   multiplica linhas.
 - Retificação: cada versão da DI é uma linha. Vale a ÚLTIMA seq de cada DI.
 - TDS_SITUACAO 'N' NÃO é cancelamento: essas DIs desembaraçam e pagam II/IPI
-  em proporção comparável às 'S'. S, N e nulo entram.
+  em proporção comparável às 'S'. S, N e nulo entram. Confirmado pela SEFAZ-MA
+  em 24/08/2026: o campo vem da Receita Federal e não é usado nas procedures
+  da casa — "pode ser desconsiderado".
 - TDS_TIPO_DECL: as DIs de situação nula têm tipo nulo. Aceita '01' e nulo,
   exclui os demais tipos (não-consumo), que somam 0,17% do valor.
 - Valor: TDI_VALOR_BASE_CALC_II = base de cálculo do II = valor aduaneiro (CIF).
