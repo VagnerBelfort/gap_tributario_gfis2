@@ -15,7 +15,8 @@ de fontes diferentes e por equipes diferentes, convergem:
 | Apuração | Fonte | Conceito | 2022 (R$ bi) |
 |---|---|---|---:|
 | **Nossa** | Siscomex (Oracle SEFAZ) | CIF, domicílio fiscal do importador | **39,70** |
-| SEFAZ-MA (NEC) | MDIC ComexStat | FOB em US$ × PTAX média, UF do produto | 38,79 |
+| Reconversão nossa do dado da SEFAZ | MDIC ComexStat | FOB em US$ × PTAX venda, UF do produto | 38,79 |
+| SEFAZ-MA (NEC), planilha original | MDIC ComexStat | FOB em US$ × PTAX compra, UF do produto | 38,78 |
 
 Diferença de **+2,4%**, no sentido esperado: o valor aduaneiro inclui frete e
 seguro, que o FOB não inclui. A convergência se mantém em toda a série
@@ -110,9 +111,20 @@ nenhuma conclusão.
 | 2025 | 4,758 | 5,5859 | 26,58 | 27,21 | +2,4% | 27,99 | +2,9% |
 
 A coluna **Δ vs MDIC** é positiva nos sete anos, entre +2,4% e +12,8%, mediana
-+6,8%. Esse é o corredor que o relatório aplica como controle a cada execução
-(`engine/comparacao.py`): desvio fora dele sai como aviso no log e como
-sinalização no PDF e no Excel. É a assinatura esperada de CIF sobre FOB, e é o que sustenta as duas
++6,8%.
+
+O relatório aplica isso como controle a cada execução (`engine/comparacao.py`):
+desvio fora do corredor sai como aviso no log e como sinalização no PDF e no
+Excel. São duas grandezas distintas, e o código as separa:
+
+- **Faixa observada** (`FAIXA_OBSERVADA`): +2,4% a +12,8%, o que foi medido. É o
+  que o relatório exibe como referência de leitura.
+- **Corredor de controle** (`CORREDOR_CONTROLE`): +2% a +13%, deliberadamente
+  mais largo. O extremo inferior medido, 2022, é +2,368% — colar o controle no
+  valor exibido reprovaria justamente o ano que o originou.
+
+O controle só se aplica a períodos **anuais**: a faixa foi medida em totais de
+ano, e num trimestre o desvio é calculado mas não julgado. É a assinatura esperada de CIF sobre FOB, e é o que sustenta as duas
 apurações como medições coerentes do mesmo fenômeno — não um encontro fortuito
 em 2022.
 

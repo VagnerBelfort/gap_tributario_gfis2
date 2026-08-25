@@ -794,8 +794,8 @@ def test_comparacao_de_fontes_carrega_o_desvio_do_siscomex_sobre_o_mdic(config_p
 
     comparacoes = gerar.call_args.args[6]
     (mdic,) = [c for c in comparacoes if c.fonte == "MDIC ComEx"]
-    assert mdic.desvio_pct == pytest.approx(Decimal("2.37"), abs=Decimal("0.01"))
-    assert mdic.dentro_do_corredor is True
+    assert mdic.comparacao.desvio_pct == pytest.approx(Decimal("2.37"), abs=Decimal("0.01"))
+    assert mdic.comparacao.dentro_do_corredor is True
 
 
 def test_leitura_do_mdic_explica_a_divergencia_por_cif_sobre_fob(config_path, saida):
@@ -830,3 +830,35 @@ def test_leitura_do_mdic_explica_a_divergencia_por_cif_sobre_fob(config_path, sa
     assert "FOB" in mdic.observacoes
     assert "CIF" in mdic.observacoes
     assert "+2,4%" in mdic.observacoes and "+12,8%" in mdic.observacoes
+
+
+def test_periodo_trimestral_nao_aplica_o_corredor_anual(config_path, saida):
+    """Num trimestre o desvio é calculado, mas não julgado.
+
+    A faixa +2,4% a +12,8% foi medida em totais anuais; aplicá-la a um trimestre
+    produziria alarme falso no log e no relatório.
+    """
+    with _mock_extractors(imp=Decimal("38785.57")), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=Decimal("39703.79"),
+    ), patch("gap_tributario.report.pdf.PDFReport.gerar") as gerar, patch(
+        "sys.argv",
+        [
+            "gap-tributario",
+            "--periodo",
+            "2022-T1",
+            "--formato",
+            "pdf",
+            "--config",
+            config_path,
+            "--saida",
+            str(saida),
+        ],
+    ):
+        gerar.return_value = saida / "gap_icms_2022-T1.pdf"
+        assert run() == 0
+
+    comparacoes = gerar.call_args.args[6]
+    (mdic,) = [c for c in comparacoes if c.fonte == "MDIC ComEx"]
+    assert mdic.comparacao.desvio_pct is not None
+    assert mdic.comparacao.dentro_do_corredor is None

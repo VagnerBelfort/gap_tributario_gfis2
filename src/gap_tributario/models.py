@@ -164,6 +164,19 @@ class Proveniencia:
     observacoes: str = ""  # caveats de cobertura/metodologia
 
 
+@dataclass(frozen=True)
+class ComparacaoLeituras:
+    """Divergência entre a leitura vencedora da cascata e uma alternativa.
+
+    Calculada por `engine.comparacao.comparar_leituras`.
+    """
+
+    desvio_pct: Decimal  # (referência − alternativa) / alternativa, em %
+    # None quando o corredor não se aplica ao período (a faixa foi medida em
+    # totais anuais; num trimestre o desvio existe mas não é avaliável).
+    dentro_do_corredor: Optional[bool] = None
+
+
 @dataclass
 class ComparacaoFonte:
     """Valor que uma fonte alternativa daria para a mesma variável da fórmula.
@@ -177,10 +190,9 @@ class ComparacaoFonte:
     fonte: str  # ex.: "Siscomex (SEFAZ-MA)", "MDIC ComEx"
     valor_brl: Decimal  # em R$ milhões, mesma unidade da fórmula
     observacoes: str = ""  # por que as fontes divergem
-    # Preenchidos na leitura alternativa: quanto a fonte vencedora se afasta
-    # dela, e se esse afastamento cabe no corredor histórico (engine/comparacao).
-    desvio_pct: Optional[Decimal] = None
-    dentro_do_corredor: Optional[bool] = None
+    # Preenchido na leitura alternativa: quanto a fonte vencedora se afasta
+    # dela, e se esse afastamento cabe no corredor de controle.
+    comparacao: "Optional[ComparacaoLeituras]" = None
 
 
 @dataclass

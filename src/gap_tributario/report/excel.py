@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, List, Optional
 
 import xlsxwriter
 
+from gap_tributario.report.formatacao import sufixo_desvio
+
 if TYPE_CHECKING:
     from gap_tributario.models import (
         AppConfig,
@@ -45,12 +47,6 @@ logger = logging.getLogger(__name__)
 _COR_PRIMARIA = "#1a3a6b"  # Azul institucional escuro
 _COR_LINHA_PAR = "#e8edf5"  # Azul muito claro para linhas alternadas
 _COR_TEXTO_CLARO = "#ffffff"
-
-
-def _formatar_desvio(valor: Decimal) -> str:
-    """Formata o desvio entre fontes com sinal explícito: +2,4% / -76,1%."""
-    arredondado = valor.quantize(Decimal("0.1"))
-    return f"{arredondado:+.1f}%".replace(".", ",")
 
 
 def _formatar_brl(valor: Decimal) -> str:
@@ -459,12 +455,7 @@ class ExcelReport:
                 fmt_l = fmt_label if i % 2 == 0 else fmt_label_par
                 fmt_v = fmt_valor if i % 2 == 0 else fmt_linha_par
                 ws.write(linha, 0, f"{c.variavel} — {c.fonte}", fmt_l)
-                valor = f"R$ {c.valor_brl:,.2f} mi"
-                if c.desvio_pct is not None:
-                    valor += f" (desvio da fonte adotada: {_formatar_desvio(c.desvio_pct)}"
-                    if c.dentro_do_corredor is False:
-                        valor += ", fora do corredor esperado"
-                    valor += ")"
+                valor = f"R$ {c.valor_brl:,.2f} mi" + sufixo_desvio(c.comparacao)
                 ws.write(linha, 1, valor, fmt_v)
                 linha += 1
                 if c.observacoes:

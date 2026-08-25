@@ -4,7 +4,10 @@ from decimal import Decimal
 
 import pytest
 
-from gap_tributario.engine.comparacao import comparar_leituras
+from gap_tributario.engine.comparacao import (
+    descrever_faixa_observada,
+    comparar_leituras,
+)
 
 
 class TestCompararLeituras:
@@ -27,11 +30,12 @@ class TestCompararLeituras:
         assert comparacao.desvio_pct == pytest.approx(Decimal("-76.14"), abs=Decimal("0.01"))
 
 
-class TestCorredorEsperado:
-    """O desvio Siscomex × MDIC tem magnitude e sinal esperados (2019-2025:
-    +2,4% a +12,8%). Fora disso, o dado merece investigação."""
+class TestCorredorDeControle:
+    """A tolerância do controle é mais larga que a faixa observada: o extremo
+    medido (2022, +2,368%) precisa passar, e o arredondamento da exibição não
+    pode transformar o limite em armadilha."""
 
-    def test_desvio_de_2022_esta_dentro_do_corredor(self):
+    def test_extremo_inferior_observado_esta_dentro_do_corredor(self):
         comparacao = comparar_leituras(
             referencia=Decimal("39703.79"), alternativa=Decimal("38785.57")
         )
@@ -53,6 +57,28 @@ class TestCorredorEsperado:
         )
 
         assert comparacao.dentro_do_corredor is False
+
+
+class TestCorredorNaoAplicavel:
+    """A faixa foi medida em totais anuais. Aplicá-la a um trimestre produz
+    alarme falso, então o controle se declara não avaliado."""
+
+    def test_sem_corredor_o_desvio_continua_sendo_calculado(self):
+        comparacao = comparar_leituras(
+            referencia=Decimal("39703.79"),
+            alternativa=Decimal("38785.57"),
+            aplicar_corredor=False,
+        )
+
+        assert comparacao.desvio_pct == pytest.approx(Decimal("2.37"), abs=Decimal("0.01"))
+        assert comparacao.dentro_do_corredor is None
+
+
+class TestDescricaoDaFaixa:
+    """O texto do relatório deriva das constantes, para não divergir delas."""
+
+    def test_descricao_traz_a_faixa_observada_e_a_mediana(self):
+        assert descrever_faixa_observada() == "+2,4% a +12,8% (mediana +6,8%)"
 
 
 class TestAlternativaAusente:

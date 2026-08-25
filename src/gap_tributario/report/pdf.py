@@ -23,6 +23,8 @@ from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.platypus.flowables import HRFlowable
 
+from gap_tributario.report.formatacao import sufixo_desvio
+
 if TYPE_CHECKING:
     from gap_tributario.models import (
         AppConfig,
@@ -79,12 +81,6 @@ def _formatar_vrr(valor: Decimal) -> str:
         int_part = str_val
         dec_part = "0000"
     return f"{int_part},{dec_part}"
-
-
-def _formatar_desvio(valor: Decimal) -> str:
-    """Formata o desvio entre fontes com sinal explícito: +2,4% / -76,1%."""
-    arredondado = valor.quantize(Decimal("0.1"))
-    return f"{arredondado:+.1f}%".replace(".", ",")
 
 
 def _formatar_percentual(valor: Decimal) -> str:
@@ -595,11 +591,7 @@ class PDFReport:
             )
             for c in comparacao_fontes:
                 linha = f"<b>{c.variavel} — {c.fonte}:</b> R$ {c.valor_brl:,.2f} mi"
-                if c.desvio_pct is not None:
-                    linha += f" (desvio da fonte adotada: {_formatar_desvio(c.desvio_pct)}"
-                    if c.dentro_do_corredor is False:
-                        linha += ", <b>fora do corredor esperado</b>"
-                    linha += ")"
+                linha += sufixo_desvio(c.comparacao, alerta_html=True)
                 if c.observacoes:
                     linha += f" — {c.observacoes}"
                 story.append(Paragraph(linha, estilo_normal))

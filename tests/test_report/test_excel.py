@@ -288,7 +288,7 @@ def test_comparacao_de_fontes_no_conteudo(resultado_2022, config_test, tmp_path)
     relatório precisa expor a diferença e a evidência que a justifica — e não
     apenas o número vencedor.
     """
-    from gap_tributario.models import ComparacaoFonte
+    from gap_tributario.models import ComparacaoFonte, ComparacaoLeituras
 
     saida = tmp_path / "relatorios"
     comparacao = [
@@ -320,7 +320,7 @@ def test_comparacao_de_fontes_no_conteudo(resultado_2022, config_test, tmp_path)
 def test_desvio_entre_fontes_aparece_no_excel(resultado_2022, config_test, tmp_path):
     """A planilha traz o desvio ao lado da leitura alternativa, com o aviso de
     corredor quando ele é ultrapassado."""
-    from gap_tributario.models import ComparacaoFonte
+    from gap_tributario.models import ComparacaoFonte, ComparacaoLeituras
 
     saida = tmp_path / "relatorios"
     comparacao = [
@@ -333,8 +333,9 @@ def test_desvio_entre_fontes_aparece_no_excel(resultado_2022, config_test, tmp_p
             variavel="Importações",
             fonte="MDIC ComEx",
             valor_brl=Decimal("10520.00"),
-            desvio_pct=Decimal("-76.14"),
-            dentro_do_corredor=False,
+            comparacao=ComparacaoLeituras(
+                desvio_pct=Decimal("-76.14"), dentro_do_corredor=False
+            ),
         ),
     ]
 

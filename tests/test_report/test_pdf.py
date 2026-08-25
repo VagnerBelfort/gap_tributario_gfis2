@@ -378,7 +378,7 @@ def test_comparacao_de_fontes_aparece_no_story(resultado_2022, config_test):
     """A seção comparativa expõe as duas leituras de importações no PDF."""
     from reportlab.platypus import Paragraph
 
-    from gap_tributario.models import ComparacaoFonte
+    from gap_tributario.models import ComparacaoFonte, ComparacaoLeituras
 
     comparacao = [
         ComparacaoFonte(
@@ -422,7 +422,7 @@ def test_desvio_entre_fontes_aparece_no_story(resultado_2022, config_test):
     """
     from reportlab.platypus import Paragraph
 
-    from gap_tributario.models import ComparacaoFonte
+    from gap_tributario.models import ComparacaoFonte, ComparacaoLeituras
 
     comparacao = [
         ComparacaoFonte(
@@ -434,8 +434,9 @@ def test_desvio_entre_fontes_aparece_no_story(resultado_2022, config_test):
             variavel="Importações",
             fonte="MDIC ComEx",
             valor_brl=Decimal("38785.57"),
-            desvio_pct=Decimal("2.37"),
-            dentro_do_corredor=True,
+            comparacao=ComparacaoLeituras(
+                desvio_pct=Decimal("2.37"), dentro_do_corredor=True
+            ),
         ),
     ]
 
@@ -450,7 +451,7 @@ def test_desvio_entre_fontes_aparece_no_story(resultado_2022, config_test):
 def test_desvio_fora_do_corredor_e_sinalizado_no_story(resultado_2022, config_test):
     from reportlab.platypus import Paragraph
 
-    from gap_tributario.models import ComparacaoFonte
+    from gap_tributario.models import ComparacaoFonte, ComparacaoLeituras
 
     comparacao = [
         ComparacaoFonte(
@@ -462,8 +463,9 @@ def test_desvio_fora_do_corredor_e_sinalizado_no_story(resultado_2022, config_te
             variavel="Importações",
             fonte="MDIC ComEx",
             valor_brl=Decimal("10520.00"),
-            desvio_pct=Decimal("-76.14"),
-            dentro_do_corredor=False,
+            comparacao=ComparacaoLeituras(
+                desvio_pct=Decimal("-76.14"), dentro_do_corredor=False
+            ),
         ),
     ]
 

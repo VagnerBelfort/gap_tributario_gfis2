@@ -154,7 +154,11 @@ def run() -> int:
     from pathlib import Path
 
     from gap_tributario.config import load_config
-    from gap_tributario.engine.comparacao import comparar_leituras
+    from gap_tributario.engine.comparacao import (
+        comparar_leituras,
+        descrever_corredor_controle,
+        descrever_faixa_observada,
+    )
     from gap_tributario.engine.gap_decomposition import decompor_gap
     from gap_tributario.engine.vrr import MotorVRR
     from gap_tributario.extractors.amf_renuncia import AmfRenunciaReader
@@ -364,15 +368,20 @@ def run() -> int:
             )
             # A troca de fonte move o gap de forma material: o relatório mostra
             # as duas leituras, com o desvio entre elas como controle do dado.
+            # A faixa foi medida em totais anuais: num trimestre o desvio é
+            # calculado, mas não julgado.
             comparacao = comparar_leituras(
-                referencia=importacoes_brl, alternativa=importacoes_mdic
+                referencia=importacoes_brl,
+                alternativa=importacoes_mdic,
+                aplicar_corredor=periodo.is_anual,
             )
-            if not comparacao.dentro_do_corredor:
+            if comparacao.dentro_do_corredor is False:
                 logger.warning(
                     "Importações %s: desvio Siscomex × MDIC de %.1f%% está fora do "
-                    "corredor esperado (+2%% a +13%%). Conferir o dado do período.",
+                    "corredor de controle (%s). Conferir o dado do período.",
                     periodo.label,
                     comparacao.desvio_pct,
+                    descrever_corredor_controle(),
                 )
             comparacao_fontes = [
                 ComparacaoFonte(
@@ -393,12 +402,12 @@ def run() -> int:
                         "operam em sentidos opostos: o FOB não inclui frete e seguro, "
                         "que o CIF do Siscomex inclui, e a UF do produto não separa o "
                         "trânsito por Itaqui. O desconto do FOB supera o trânsito, "
-                        "então o MDIC fica abaixo — de 2019 a 2025, entre +2,4% e "
-                        "+12,8% (mediana +6,8%). Desvio fora desse corredor pede exame "
-                        "do dado, não leitura metodológica."
+                        "então o MDIC fica abaixo — nos totais anuais de 2019 a 2025, "
+                        f"{descrever_faixa_observada()}. O controle aceita "
+                        f"{descrever_corredor_controle()}; fora disso o dado pede exame, "
+                        "não leitura metodológica."
                     ),
-                    desvio_pct=comparacao.desvio_pct,
-                    dentro_do_corredor=comparacao.dentro_do_corredor,
+                    comparacao=comparacao,
                 ),
             ]
         except ExtractionError as exc:
