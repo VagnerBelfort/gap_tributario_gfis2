@@ -759,3 +759,74 @@ def test_proveniencia_siscomex_declara_ausencia_de_filtro_por_situacao(config_pa
     assert imp.origem == "Siscomex (SEFAZ-MA)"
     assert "TDS_SITUACAO" in imp.observacoes
     assert "sem filtro" in imp.observacoes
+
+
+# ---------------------------------------------------------------------------
+# Validação cruzada Siscomex × MDIC
+# ---------------------------------------------------------------------------
+
+
+def test_comparacao_de_fontes_carrega_o_desvio_do_siscomex_sobre_o_mdic(config_path, saida):
+    """A leitura do MDIC vem acompanhada do desvio da fonte vencedora sobre ela.
+
+    O desvio é controle de qualidade: de 2019 a 2025 fica entre +2,4% e +12,8%,
+    a assinatura de CIF sobre FOB. Fora do corredor, o dado precisa de exame.
+    """
+    with _mock_extractors(imp=Decimal("38785.57")), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=Decimal("39703.79"),
+    ), patch("gap_tributario.report.pdf.PDFReport.gerar") as gerar, patch(
+        "sys.argv",
+        [
+            "gap-tributario",
+            "--periodo",
+            "2022",
+            "--formato",
+            "pdf",
+            "--config",
+            config_path,
+            "--saida",
+            str(saida),
+        ],
+    ):
+        gerar.return_value = saida / "gap_icms_2022.pdf"
+        assert run() == 0
+
+    comparacoes = gerar.call_args.args[6]
+    (mdic,) = [c for c in comparacoes if c.fonte == "MDIC ComEx"]
+    assert mdic.desvio_pct == pytest.approx(Decimal("2.37"), abs=Decimal("0.01"))
+    assert mdic.dentro_do_corredor is True
+
+
+def test_leitura_do_mdic_explica_a_divergencia_por_cif_sobre_fob(config_path, saida):
+    """O texto que acompanha o MDIC declara os dois efeitos opostos.
+
+    A explicação anterior atribuía a diferença ao trânsito por Itaqui, o que a
+    série 2019-2025 contradiz: o MDIC fica abaixo do Siscomex em todos os anos,
+    porque o desconto do FOB supera o trânsito.
+    """
+    with _mock_extractors(imp=Decimal("38785.57")), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=Decimal("39703.79"),
+    ), patch("gap_tributario.report.pdf.PDFReport.gerar") as gerar, patch(
+        "sys.argv",
+        [
+            "gap-tributario",
+            "--periodo",
+            "2022",
+            "--formato",
+            "pdf",
+            "--config",
+            config_path,
+            "--saida",
+            str(saida),
+        ],
+    ):
+        gerar.return_value = saida / "gap_icms_2022.pdf"
+        assert run() == 0
+
+    comparacoes = gerar.call_args.args[6]
+    (mdic,) = [c for c in comparacoes if c.fonte == "MDIC ComEx"]
+    assert "FOB" in mdic.observacoes
+    assert "CIF" in mdic.observacoes
+    assert "+2,4%" in mdic.observacoes and "+12,8%" in mdic.observacoes

@@ -412,3 +412,65 @@ def test_sem_comparacao_nao_exibe_secao(resultado_2022, config_test):
 
     texto = " ".join(f.text for f in story if isinstance(f, Paragraph))
     assert "Comparação de Fontes" not in texto
+
+
+def test_desvio_entre_fontes_aparece_no_story(resultado_2022, config_test):
+    """A leitura alternativa mostra o desvio e sinaliza quando ele foge do corredor.
+
+    O desvio é o controle de qualidade do dado: quem lê o relatório precisa ver
+    a magnitude sem recalcular, e ser avisado quando ela sai do esperado.
+    """
+    from reportlab.platypus import Paragraph
+
+    from gap_tributario.models import ComparacaoFonte
+
+    comparacao = [
+        ComparacaoFonte(
+            variavel="Importações",
+            fonte="Siscomex (SEFAZ-MA)",
+            valor_brl=Decimal("39703.79"),
+        ),
+        ComparacaoFonte(
+            variavel="Importações",
+            fonte="MDIC ComEx",
+            valor_brl=Decimal("38785.57"),
+            desvio_pct=Decimal("2.37"),
+            dentro_do_corredor=True,
+        ),
+    ]
+
+    story = PDFReport()._construir_story(
+        resultado_2022, config_test, None, None, comparacao
+    )
+    texto = " ".join(p.text for p in story if isinstance(p, Paragraph))
+
+    assert "+2,4%" in texto
+
+
+def test_desvio_fora_do_corredor_e_sinalizado_no_story(resultado_2022, config_test):
+    from reportlab.platypus import Paragraph
+
+    from gap_tributario.models import ComparacaoFonte
+
+    comparacao = [
+        ComparacaoFonte(
+            variavel="Importações",
+            fonte="Siscomex (SEFAZ-MA)",
+            valor_brl=Decimal("2510.00"),
+        ),
+        ComparacaoFonte(
+            variavel="Importações",
+            fonte="MDIC ComEx",
+            valor_brl=Decimal("10520.00"),
+            desvio_pct=Decimal("-76.14"),
+            dentro_do_corredor=False,
+        ),
+    ]
+
+    story = PDFReport()._construir_story(
+        resultado_2022, config_test, None, None, comparacao
+    )
+    texto = " ".join(p.text for p in story if isinstance(p, Paragraph))
+
+    assert "-76,1%" in texto
+    assert "fora do corredor" in texto

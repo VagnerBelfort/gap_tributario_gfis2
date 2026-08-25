@@ -81,6 +81,12 @@ def _formatar_vrr(valor: Decimal) -> str:
     return f"{int_part},{dec_part}"
 
 
+def _formatar_desvio(valor: Decimal) -> str:
+    """Formata o desvio entre fontes com sinal explícito: +2,4% / -76,1%."""
+    arredondado = valor.quantize(Decimal("0.1"))
+    return f"{arredondado:+.1f}%".replace(".", ",")
+
+
 def _formatar_percentual(valor: Decimal) -> str:
     """Formata percentual no padrão brasileiro: 48,00%."""
     valor_round = valor.quantize(Decimal("0.01"))
@@ -589,6 +595,11 @@ class PDFReport:
             )
             for c in comparacao_fontes:
                 linha = f"<b>{c.variavel} — {c.fonte}:</b> R$ {c.valor_brl:,.2f} mi"
+                if c.desvio_pct is not None:
+                    linha += f" (desvio da fonte adotada: {_formatar_desvio(c.desvio_pct)}"
+                    if c.dentro_do_corredor is False:
+                        linha += ", <b>fora do corredor esperado</b>"
+                    linha += ")"
                 if c.observacoes:
                     linha += f" — {c.observacoes}"
                 story.append(Paragraph(linha, estilo_normal))

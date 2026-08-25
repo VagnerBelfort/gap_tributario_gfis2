@@ -15,7 +15,7 @@ de fontes diferentes e por equipes diferentes, convergem:
 | Apuração | Fonte | Conceito | 2022 (R$ bi) |
 |---|---|---|---:|
 | **Nossa** | Siscomex (Oracle SEFAZ) | CIF, domicílio fiscal do importador | **39,70** |
-| SEFAZ-MA (NEC) | MDIC ComexStat | FOB em US$ × PTAX média, UF do produto | 38,78 |
+| SEFAZ-MA (NEC) | MDIC ComexStat | FOB em US$ × PTAX média, UF do produto | 38,79 |
 
 Diferença de **+2,4%**, no sentido esperado: o valor aduaneiro inclui frete e
 seguro, que o FOB não inclui. A convergência se mantém em toda a série
@@ -42,7 +42,9 @@ Em 24/08/2026 o autor da apuração (Jomar Fernandes Pereira, SEFAZ-MA) informou
 por mensagem de voz que o número **não é uma apuração**, e sim uma referência
 usada para a apresentação; que o dado do sistema deles para 2022 é
 R$ 38,7 bilhões; e que a fonte recomendada é o MDIC. Transcrição integral e
-capturas de tela em `resposta_jomar/transcricao.md`.
+capturas de tela em `resposta_jomar/transcricao.md`. O valor da planilha deles,
+R$ 38.780.445.567,61, sai de US$ 7,509 bi × 5,1648 (PTAX compra); com a ponta
+de venda que o pipeline usa, R$ 38,79 bi.
 
 Não há, portanto, memória de cálculo a reproduzir. As tentativas de localizar a
 definição equivalente ficaram sem objeto e foram removidas deste documento.
@@ -88,9 +90,9 @@ CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)
 ?@dataInicial='01-01-2022'&@dataFinalCotacao='12-31-2022'&\$format=json"
 ```
 
-**Câmbio.** Usamos a média das cotações de **compra** do ano: 5,1649 para 2022,
-contra os 5,1648 informados pela SEFAZ. As alternativas — média de venda
-(5,1655) e média das duas pontas (5,1652) — diferem em 0,01% e não alteram
+**Câmbio.** Usamos a média das cotações de **venda** do ano — 5,1655 para 2022 —,
+a mesma ponta que o pipeline aplica em todas as conversões. A SEFAZ informou
+5,1648, que é a média de compra; as duas diferem em 0,01% e não alteram
 nenhuma conclusão.
 
 ---
@@ -99,16 +101,18 @@ nenhuma conclusão.
 
 | Ano | MDIC US$ bi FOB | PTAX média | MDIC R$ bi | Siscomex R$ bi (domicílio) | Δ vs MDIC | Siscomex R$ bi (despacho) | Trânsito |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 2019 | 3,552 | 3,9455 | 14,01 | 14,97 | +6,8% | 15,76 | +5,2% |
-| 2020 | 1,977 | 5,1572 | 10,20 | 11,50 | +12,8% | 12,58 | +9,3% |
-| 2021 | 4,182 | 5,3949 | 22,56 | 24,10 | +6,8% | 25,36 | +5,2% |
-| 2022 | 7,509 | 5,1649 | 38,78 | 39,70 | +2,4% | 43,55 | +9,7% |
-| 2023 | 4,859 | 4,9947 | 24,27 | 25,65 | +5,7% | 26,42 | +3,0% |
-| 2024 | 3,978 | 5,3914 | 21,45 | 23,34 | +8,8% | 23,38 | +0,1% |
-| 2025 | 4,758 | 5,5853 | 26,57 | 27,21 | +2,4% | 27,99 | +2,9% |
+| 2019 | 3,552 | 3,9461 | 14,02 | 14,97 | +6,8% | 15,76 | +5,2% |
+| 2020 | 1,977 | 5,1578 | 10,20 | 11,50 | +12,8% | 12,58 | +9,3% |
+| 2021 | 4,182 | 5,3956 | 22,57 | 24,10 | +6,8% | 25,36 | +5,2% |
+| 2022 | 7,509 | 5,1655 | 38,79 | 39,70 | +2,4% | 43,55 | +9,7% |
+| 2023 | 4,859 | 4,9953 | 24,27 | 25,65 | +5,7% | 26,42 | +3,0% |
+| 2024 | 3,978 | 5,3920 | 21,45 | 23,34 | +8,8% | 23,38 | +0,1% |
+| 2025 | 4,758 | 5,5859 | 26,58 | 27,21 | +2,4% | 27,99 | +2,9% |
 
 A coluna **Δ vs MDIC** é positiva nos sete anos, entre +2,4% e +12,8%, mediana
-+6,8%. É a assinatura esperada de CIF sobre FOB, e é o que sustenta as duas
++6,8%. Esse é o corredor que o relatório aplica como controle a cada execução
+(`engine/comparacao.py`): desvio fora dele sai como aviso no log e como
+sinalização no PDF e no Excel. É a assinatura esperada de CIF sobre FOB, e é o que sustenta as duas
 apurações como medições coerentes do mesmo fenômeno — não um encontro fortuito
 em 2022.
 

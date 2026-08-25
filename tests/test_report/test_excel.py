@@ -315,3 +315,33 @@ def test_comparacao_de_fontes_no_conteudo(resultado_2022, config_test, tmp_path)
     assert "Siscomex" in texto
     assert "MDIC ComEx" in texto
     assert "37470" in texto.replace(".", "").replace(",", "")
+
+
+def test_desvio_entre_fontes_aparece_no_excel(resultado_2022, config_test, tmp_path):
+    """A planilha traz o desvio ao lado da leitura alternativa, com o aviso de
+    corredor quando ele é ultrapassado."""
+    from gap_tributario.models import ComparacaoFonte
+
+    saida = tmp_path / "relatorios"
+    comparacao = [
+        ComparacaoFonte(
+            variavel="Importações",
+            fonte="Siscomex (SEFAZ-MA)",
+            valor_brl=Decimal("2510.00"),
+        ),
+        ComparacaoFonte(
+            variavel="Importações",
+            fonte="MDIC ComEx",
+            valor_brl=Decimal("10520.00"),
+            desvio_pct=Decimal("-76.14"),
+            dentro_do_corredor=False,
+        ),
+    ]
+
+    arquivo = ExcelReport().gerar(
+        resultado_2022, None, config_test, saida, None, None, comparacao
+    )
+
+    texto = _extrair_texto_xlsx(arquivo)
+    assert "-76,1%" in texto
+    assert "fora do corredor" in texto

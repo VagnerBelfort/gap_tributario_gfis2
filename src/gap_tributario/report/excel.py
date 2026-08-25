@@ -47,6 +47,12 @@ _COR_LINHA_PAR = "#e8edf5"  # Azul muito claro para linhas alternadas
 _COR_TEXTO_CLARO = "#ffffff"
 
 
+def _formatar_desvio(valor: Decimal) -> str:
+    """Formata o desvio entre fontes com sinal explícito: +2,4% / -76,1%."""
+    arredondado = valor.quantize(Decimal("0.1"))
+    return f"{arredondado:+.1f}%".replace(".", ",")
+
+
 def _formatar_brl(valor: Decimal) -> str:
     """Formata Decimal no padrão brasileiro: R$ 10.148,22 milhões."""
     valor_round = valor.quantize(Decimal("0.01"))
@@ -453,7 +459,13 @@ class ExcelReport:
                 fmt_l = fmt_label if i % 2 == 0 else fmt_label_par
                 fmt_v = fmt_valor if i % 2 == 0 else fmt_linha_par
                 ws.write(linha, 0, f"{c.variavel} — {c.fonte}", fmt_l)
-                ws.write(linha, 1, f"R$ {c.valor_brl:,.2f} mi", fmt_v)
+                valor = f"R$ {c.valor_brl:,.2f} mi"
+                if c.desvio_pct is not None:
+                    valor += f" (desvio da fonte adotada: {_formatar_desvio(c.desvio_pct)}"
+                    if c.dentro_do_corredor is False:
+                        valor += ", fora do corredor esperado"
+                    valor += ")"
+                ws.write(linha, 1, valor, fmt_v)
                 linha += 1
                 if c.observacoes:
                     ws.merge_range(linha, 0, linha, 1, f"  {c.observacoes}")

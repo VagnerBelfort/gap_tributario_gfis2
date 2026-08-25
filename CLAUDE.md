@@ -64,7 +64,9 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
   `TDS_UF_IMPORTADOR` no Siscomex. O MDIC serve como **validação cruzada**, não
   como fonte: 2019-2025, a nossa apuração (CIF, domicílio) fica de +2,4% a
   +12,8% acima do MDIC (FOB × PTAX), mediana +6,8% — a assinatura esperada de
-  CIF sobre FOB. Tabela ano a ano em `docs/convergencia-importacoes.md` §3.
+  CIF sobre FOB. `engine/comparacao.py` aplica esse corredor a cada execução e
+  sinaliza no log e no relatório quando o ano sai dele. Tabela ano a ano em
+  `docs/convergencia-importacoes.md` §3.
 
 - **O MDIC não superestima as importações do MA** — a intuição de que ele
   infla por incluir trânsito por Itaqui está medida e é falsa: o MDIC fica

@@ -154,6 +154,7 @@ def run() -> int:
     from pathlib import Path
 
     from gap_tributario.config import load_config
+    from gap_tributario.engine.comparacao import comparar_leituras
     from gap_tributario.engine.gap_decomposition import decompor_gap
     from gap_tributario.engine.vrr import MotorVRR
     from gap_tributario.extractors.amf_renuncia import AmfRenunciaReader
@@ -362,7 +363,17 @@ def run() -> int:
                 importacoes_brl,
             )
             # A troca de fonte move o gap de forma material: o relatório mostra
-            # as duas leituras, em vez de só a vencedora da cascata.
+            # as duas leituras, com o desvio entre elas como controle do dado.
+            comparacao = comparar_leituras(
+                referencia=importacoes_brl, alternativa=importacoes_mdic
+            )
+            if not comparacao.dentro_do_corredor:
+                logger.warning(
+                    "Importações %s: desvio Siscomex × MDIC de %.1f%% está fora do "
+                    "corredor esperado (+2%% a +13%%). Conferir o dado do período.",
+                    periodo.label,
+                    comparacao.desvio_pct,
+                )
             comparacao_fontes = [
                 ComparacaoFonte(
                     variavel="Importações",
@@ -378,9 +389,16 @@ def run() -> int:
                     fonte="MDIC ComEx",
                     valor_brl=importacoes_mdic,
                     observacoes=(
-                        "FOB convertido pela PTAX. SG_UF_NCM é local de desembaraço, "
-                        "então mistura importação do MA com carga em trânsito."
+                        "FOB convertido pela PTAX, por UF do produto. Duas diferenças "
+                        "operam em sentidos opostos: o FOB não inclui frete e seguro, "
+                        "que o CIF do Siscomex inclui, e a UF do produto não separa o "
+                        "trânsito por Itaqui. O desconto do FOB supera o trânsito, "
+                        "então o MDIC fica abaixo — de 2019 a 2025, entre +2,4% e "
+                        "+12,8% (mediana +6,8%). Desvio fora desse corredor pede exame "
+                        "do dado, não leitura metodológica."
                     ),
+                    desvio_pct=comparacao.desvio_pct,
+                    dentro_do_corredor=comparacao.dentro_do_corredor,
                 ),
             ]
         except ExtractionError as exc:

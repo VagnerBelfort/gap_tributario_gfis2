@@ -177,6 +177,10 @@ class ComparacaoFonte:
     fonte: str  # ex.: "Siscomex (SEFAZ-MA)", "MDIC ComEx"
     valor_brl: Decimal  # em R$ milhões, mesma unidade da fórmula
     observacoes: str = ""  # por que as fontes divergem
+    # Preenchidos na leitura alternativa: quanto a fonte vencedora se afasta
+    # dela, e se esse afastamento cabe no corredor histórico (engine/comparacao).
+    desvio_pct: Optional[Decimal] = None
+    dentro_do_corredor: Optional[bool] = None
 
 
 @dataclass
