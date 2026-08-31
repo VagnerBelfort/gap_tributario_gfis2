@@ -287,31 +287,47 @@ def run() -> int:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
 
-    # 3c. ICMS arrecadado — cascata: SIGDEF (parquet limpo) → GFIS2 Parquet
+    # 3c. ICMS arrecadado — cascata: GFIS2 Parquet → SIGDEF (parquet limpo)
+    #
+    # O GFIS2 é o sistema da própria SEFAZ-MA e é o número que a casa reconhece
+    # como oficial — é ele que bate com o portal. Somando todas as parcelas de
+    # ICMS, converge com o SIGDEF/CONFAZ dentro de ~1% em 2020-2023, então a
+    # prioridade é institucional e não muda o resultado de forma material.
     try:
-        sigdef = SigdefIcmsExtractor()
         try:
-            icms_arrecadado = sigdef.extract(periodo)
-            logger.info("ICMS arrecadado %s (SIGDEF): R$ %s milhões", periodo.label, icms_arrecadado)
-            proveniencias.append(sigdef.proveniencia(data_extracao))
-        except ExtractionError as exc_sigdef:
-            logger.info(
-                "SIGDEF indisponível para %s (%s). Caindo para GFIS2.",
-                periodo.label,
-                exc_sigdef,
-            )
             icms_arrecadado = ArrecadacaoExtractor(str(config.parquet_base_path)).extract(periodo)
-            logger.info(
-                "ICMS arrecadado %s (GFIS2 fallback): R$ %s milhões", periodo.label, icms_arrecadado
-            )
+            logger.info("ICMS arrecadado %s (GFIS2): R$ %s milhões", periodo.label, icms_arrecadado)
             proveniencias.append(
                 Proveniencia(
                     variavel="ICMS Arrecadado",
-                    origem="GFIS2/SEFAZ-MA (fallback da cascata)",
-                    fonte="Parquet GFIS2 (val_icms_normal + val_icms_imp + val_icms_st)",
+                    origem="GFIS2/SEFAZ-MA (fonte nº 1)",
+                    fonte=(
+                        "Parquet GFIS2 g_arrecadacao — soma das parcelas de ICMS "
+                        "(normal, importação, ST saída, ST entrada, dívida ativa, "
+                        "TVI, FCP, FDI, IDH, fruição de benefício fiscal)"
+                    ),
                     data_extracao=data_extracao,
+                    observacoes=(
+                        "Converge com o SIGDEF/CONFAZ dentro de ~1% em 2020-2023. "
+                        "FCP, FDI e IDH são adicionais de alíquota vinculados a fundos "
+                        "e entram porque o icms_total do CONFAZ os engloba."
+                    ),
                 )
             )
+        except ExtractionError as exc_gfis2:
+            logger.info(
+                "GFIS2 indisponível para %s (%s). Caindo para SIGDEF.",
+                periodo.label,
+                exc_gfis2,
+            )
+            sigdef = SigdefIcmsExtractor()
+            icms_arrecadado = sigdef.extract(periodo)
+            logger.info(
+                "ICMS arrecadado %s (SIGDEF fallback): R$ %s milhões",
+                periodo.label,
+                icms_arrecadado,
+            )
+            proveniencias.append(sigdef.proveniencia(data_extracao))
     except ExtractionError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2

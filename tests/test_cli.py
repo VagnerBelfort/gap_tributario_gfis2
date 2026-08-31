@@ -862,3 +862,86 @@ def test_periodo_trimestral_nao_aplica_o_corredor_anual(config_path, saida):
     (mdic,) = [c for c in comparacoes if c.fonte == "MDIC ComEx"]
     assert mdic.comparacao.desvio_pct is not None
     assert mdic.comparacao.dentro_do_corredor is None
+
+
+# ---------------------------------------------------------------------------
+# Cascata de ICMS — GFIS2 como fonte nº 1
+# ---------------------------------------------------------------------------
+
+
+def test_icms_usa_gfis2_como_fonte_primaria(config_path, saida):
+    """GFIS2 é a fonte nº 1 do ICMS; o SIGDEF nem chega a ser consultado.
+
+    O GFIS2 é o sistema da própria SEFAZ-MA e é o número que a casa reconhece
+    como oficial. Com a agregação completa das parcelas ele converge com o
+    SIGDEF/CONFAZ dentro de ~1%, então a escolha é institucional, não numérica.
+    """
+    with patch(
+        "gap_tributario.extractors.ptax.PTAXExtractor.extract", return_value=_PTAX
+    ), patch(
+        "gap_tributario.extractors.ibge.IBGEExtractor.extract", return_value=_VAB
+    ), patch(
+        "gap_tributario.extractors.imesc_pib.ImescPibExtractor.extract", return_value=_VAB
+    ), patch(
+        "gap_tributario.extractors.arrecadacao.ArrecadacaoExtractor.extract",
+        return_value=_ICMS,
+    ), patch(
+        "gap_tributario.extractors.sigdef.SigdefIcmsExtractor.extract"
+    ) as mock_sigdef, patch(
+        "gap_tributario.extractors.comex.ComexExtractor.extract",
+        return_value=(_EXP, _IMP),
+    ):
+        with patch(
+            "sys.argv",
+            [
+                "gap-tributario",
+                "--periodo",
+                "2022",
+                "--config",
+                config_path,
+                "--saida",
+                str(saida),
+            ],
+        ):
+            result = run()
+
+    assert result == 0
+    mock_sigdef.assert_not_called()
+
+
+def test_icms_cai_para_sigdef_quando_gfis2_falha(config_path, saida):
+    """GFIS2 indisponível → a cascata cai para o SIGDEF em vez de abortar."""
+    from gap_tributario.extractors.base import ExtractionError
+
+    with patch(
+        "gap_tributario.extractors.ptax.PTAXExtractor.extract", return_value=_PTAX
+    ), patch(
+        "gap_tributario.extractors.ibge.IBGEExtractor.extract", return_value=_VAB
+    ), patch(
+        "gap_tributario.extractors.imesc_pib.ImescPibExtractor.extract", return_value=_VAB
+    ), patch(
+        "gap_tributario.extractors.arrecadacao.ArrecadacaoExtractor.extract",
+        side_effect=ExtractionError("GFIS2 sem dados para o período"),
+    ), patch(
+        "gap_tributario.extractors.sigdef.SigdefIcmsExtractor.extract",
+        return_value=_ICMS,
+    ) as mock_sigdef, patch(
+        "gap_tributario.extractors.comex.ComexExtractor.extract",
+        return_value=(_EXP, _IMP),
+    ):
+        with patch(
+            "sys.argv",
+            [
+                "gap-tributario",
+                "--periodo",
+                "2022",
+                "--config",
+                config_path,
+                "--saida",
+                str(saida),
+            ],
+        ):
+            result = run()
+
+    assert result == 0
+    mock_sigdef.assert_called_once()

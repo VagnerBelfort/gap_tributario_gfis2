@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
-"""Cria as tabelas da camada ouro do Gap Tributário e semeia dados de PROTÓTIPO.
+"""Cria as tabelas da camada ouro do Gap Tributário e carrega a série apurada.
 
-Objetivo: destravar o desenvolvimento do front-end antes do pipeline real existir.
-O dev da tela precisa da FORMA dos dados (schema, grão, casos de borda), não dos
-valores definitivos — que virão do pipeline bronze→prata→ouro.
+Nasceu como seed de protótipo, para destravar o front-end antes do pipeline
+real existir. Desde 31/08/2026 carrega **dados apurados**: a série anual
+2020-2025 produzida pelo CLI `gap_tributario`, conferida contra fontes
+independentes.
 
     ┌──────────────────────────────────────────────────────────────────┐
-    │  ATENÇÃO — OS VALORES AQUI SÃO DE PROTÓTIPO                      │
+    │  OS VALORES AQUI SÃO APURADOS — não são mais protótipo           │
     │                                                                  │
-    │  Extraídos do protótipo aprovado (design/project/Gap Tributario  │
-    │  GFIS2 v2.dc.html). Publicados em gfis2_ouro em 2026-07-29 para  │
-    │  destravar o front-end — serão sobrescritos pelo pipeline real   │
-    │  bronze→prata→ouro quando este entrar em produção.               │
+    │  Origem: saída de `python -m gap_tributario --periodo AAAA`.     │
+    │    · ICMS         → GFIS2 g_arrecadacao, TODAS as parcelas de    │
+    │      ICMS. Converge com o SIGDEF/CONFAZ dentro de ~1%.           │
+    │    · Importações  → Siscomex, domicílio fiscal (CIF). Desvio     │
+    │      contra o MDIC dentro da faixa medida de +2,4% a +12,8%.     │
+    │    · Série começa em 2020: o GFIS2 de 2019 é parcial (entra em   │
+    │      regime só a partir de agosto).                              │
     │                                                                  │
-    │  Divergências conhecidas vs. as fontes reais:                    │
-    │    · ICMS 2022 = 10.278  → origem desconhecida                   │
-    │      (GFIS2/g_arrecadacao = 10.917 · SIGDEF = 11.494)            │
-    │    · Imp. 2022 = 38.786  → SEM filtro NCM                        │
-    │      (com filtro cap.27/31 = 21.924, conforme golden)            │
-    │    · 2024-2026          → estimados no protótipo (flg_estimado)  │
+    │  Ainda é uma carga MANUAL: o cálculo roda fora do cluster e os   │
+    │  valores são transcritos abaixo. O pipeline que calcula dentro   │
+    │  do Spark (jobs/gold_calcula.py) continua pendente — enquanto    │
+    │  não existir, reexecutar este job após qualquer mudança de       │
+    │  fonte ou de fórmula.                                            │
     │                                                                  │
-    │  Toda linha semeada carrega id_execucao = 'SEED_MOCK_PROTOTIPO'. │
-    │  Filtre por essa chave para distinguir protótipo de dado real.   │
+    │  Toda linha carrega id_execucao = 'CARGA_MANUAL_2026-08-31'.     │
     └──────────────────────────────────────────────────────────────────┘
 
 O DDL é idêntico ao de produção: só muda o database.
@@ -74,8 +76,9 @@ from pyspark.sql.types import (
 )
 
 # Marca de água: toda linha semeada por este script carrega esta chave.
-ID_EXECUCAO_MOCK = "SEED_MOCK_PROTOTIPO"
-VERSAO_ENGINE_MOCK = "MOCK-PROTOTIPO-v2"
+# Deixou de ser protótipo — os valores abaixo são a saída real do CLI.
+ID_EXECUCAO_MOCK = "CARGA_MANUAL_2026-08-31"
+VERSAO_ENGINE_MOCK = "gap_tributario-cli-2026-08-31"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,31 +225,36 @@ SCHEMA_PROVENIENCIA = StructType([
 D = Decimal
 
 RAW: List[Dict] = [
-    {"ano": 2019, "aliq": D("0.18"), "ptax": D("3.95"), "vab": D("86944"),
-     "icms": D("3335"), "exp": D("13984"), "imp": D("14016"), "ren": None},
-    {"ano": 2020, "aliq": D("0.18"), "ptax": D("5.16"), "vab": D("95497"),
-     "icms": D("7172"), "exp": D("17388"), "imp": D("10197"), "ren": None},
-    {"ano": 2021, "aliq": D("0.18"), "ptax": D("5.40"), "vab": D("111633"),
-     "icms": D("8489"), "exp": D("23601"), "imp": D("22567"), "ren": None},
-    {"ano": 2022, "aliq": D("0.18"), "ptax": D("5.17"), "vab": D("124860"),
-     "icms": D("10278"), "exp": D("29639"), "imp": D("38786"),
-     "ren": D("2182.13"), "vintage": "LDO-2022",
-     "qicms": [D("2336"), D("2494"), D("2881"), D("2567")]},
-    {"ano": 2023, "aliq": D("0.20"), "ptax": D("5.00"), "vab": D("133290"),
-     "icms": D("9692"), "exp": D("27378"), "imp": D("24273"),
-     "ren": D("2410"), "vintage": "LDO-2025"},
-    {"ano": 2024, "aliq": D("0.20"), "ptax": D("5.15"), "vab": D("141900"),
-     "icms": D("11240"), "exp": D("28900"), "imp": D("26400"),
-     "ren": D("2655"), "vintage": "LDO-2025", "estimado": True},
-    {"ano": 2025, "aliq": D("0.20"), "ptax": D("5.42"), "vab": D("149200"),
-     "icms": D("12310"), "exp": D("30150"), "imp": D("27980"),
-     "ren": D("2890"), "vintage": "LDO-2026", "estimado": True},
-    # 2026: ano PARCIAL — só T1 e T2. Caso de borda importante para a tela.
-    {"ano": 2026, "aliq": D("0.20"), "ptax": D("5.30"), "vab": D("78200"),
-     "icms": D("6480"), "exp": D("15600"), "imp": D("14200"),
-     "ren": D("3050"), "vintage": "LDO-2026", "estimado": True, "parcial": True,
-     "nq": 2, "qicms": [D("3180"), D("3300")]},
+    # Saída real de `python -m gap_tributario --periodo AAAA`, 31/08/2026.
+    # ICMS: GFIS2 g_arrecadacao, soma de todas as parcelas de ICMS.
+    # Importações: Siscomex, domicílio fiscal do importador (CIF).
+    # A série começa em 2020: em 2019 o GFIS2 só entra em regime a partir de
+    # agosto, o que produzia um VRR artificialmente baixo (0,213).
+    {"ano": 2020, "aliq": D("0.18"), "ptax": D("5.1578"), "vab": D("95497.34"),
+     "icms": D("8195.78"), "exp": D("17387.76"), "imp": D("11504.37"),
+     "ren": None, "fonte_vab": "ibge_sidra"},
+    {"ano": 2021, "aliq": D("0.18"), "ptax": D("5.3956"), "vab": D("110230"),
+     "icms": D("9744.74"), "exp": D("23600.89"), "imp": D("24102.07"),
+     "ren": None, "fonte_vab": "imesc"},
+    {"ano": 2022, "aliq": D("0.18"), "ptax": D("5.1655"), "vab": D("124859"),
+     "icms": D("11394.47"), "exp": D("29639.40"), "imp": D("39703.79"),
+     "ren": D("2182.131338"), "vintage": "LDO-2022", "fonte_vab": "imesc"},
+    {"ano": 2023, "aliq": D("0.20"), "ptax": D("4.9953"), "vab": D("135434"),
+     "icms": D("10824.28"), "exp": D("27377.56"), "imp": D("25650.15"),
+     "ren": D("2253.050607"), "vintage": "LDO-2022", "fonte_vab": "imesc"},
+    {"ano": 2024, "aliq": D("0.20"), "ptax": D("5.3920"), "vab": D("144220"),
+     "icms": D("13945.58"), "exp": D("30189.93"), "imp": D("23344.39"),
+     "ren": D("2326.274752"), "vintage": "LDO-2022", "fonte_vab": "imesc"},
+    {"ano": 2025, "aliq": D("0.20"), "ptax": D("5.5859"), "vab": D("156260"),
+     "icms": D("15714.22"), "exp": D("28055.73"), "imp": D("27208.42"),
+     "ren": D("2371.561069"), "vintage": "LDO-2025", "fonte_vab": "imesc"},
 ]
+
+# Sem linhas trimestrais nesta carga: o rateio sazonal do protótipo era
+# fabricado, e publicar trimestre estimado como se fosse apuração repetiria o
+# erro que acabamos de corrigir. O CLI já calcula trimestre de verdade
+# (--periodo AAAA-TN); publicar isso na camada ouro é item de próximos passos.
+NQ_PADRAO = 0
 
 # Pesos de rateio trimestral do protótipo (somam 1,0 cada).
 SHARE_ICMS = [D("0.235"), D("0.245"), D("0.270"), D("0.250")]
@@ -294,16 +302,15 @@ def calcular(vab: Decimal, exp: Decimal, imp: Decimal, icms: Decimal,
 
 
 def linha_resultado(ano: int, tipo: str, tri: int, vab, exp, imp, icms, aliq,
-                    ptax, parcial: bool, estimado: bool, ts):
+                    ptax, parcial: bool, estimado: bool, ts, fonte_vab="imesc"):
     c = calcular(vab, exp, imp, icms, aliq)
     return (
         ano, tipo, tri,
         q2(vab), q2(exp), q2(imp), q2(c["base"]), q4(aliq), q4(ptax),
         q2(c["potencial"]), q2(icms), q6(c["vrr"]), q2(c["gap"]), q4(c["gap_pct"]),
         parcial, estimado,
-        # Fontes conforme o protótipo: importação SEM filtro NCM (mdic_bruto).
-        "ibge_sidra" if estimado else "imesc",
-        "gfis2", "mdic_bruto", "mdic",
+        # Importação vem do Siscomex (domicílio fiscal), não do MDIC.
+        fonte_vab, "gfis2", "siscomex", "mdic",
         ts, VERSAO_ENGINE_MOCK, ID_EXECUCAO_MOCK,
     )
 
@@ -311,13 +318,14 @@ def linha_resultado(ano: int, tipo: str, tri: int, vab, exp, imp, icms, aliq,
 def construir_resultado(ts) -> List[tuple]:
     linhas = []
     for r in RAW:
-        nq = r.get("nq", 4)
+        nq = r.get("nq", NQ_PADRAO)
         parcial = r.get("parcial", False)
         estimado = r.get("estimado", False)
 
         linhas.append(linha_resultado(
             r["ano"], "A", 0, r["vab"], r["exp"], r["imp"], r["icms"],
-            r["aliq"], r["ptax"], parcial, estimado, ts))
+            r["aliq"], r["ptax"], parcial, estimado, ts,
+            r.get("fonte_vab", "imesc")))
 
         for i in range(nq):
             # Ano parcial rateia igualmente; ano completo usa os pesos sazonais.
@@ -327,7 +335,8 @@ def construir_resultado(ts) -> List[tuple]:
             qi = r["qicms"][i] if "qicms" in r else r["icms"] * SHARE_ICMS[i]
             linhas.append(linha_resultado(
                 r["ano"], "T", i + 1, qv, qe, qm, qi,
-                r["aliq"], r["ptax"], parcial, estimado, ts))
+                r["aliq"], r["ptax"], parcial, estimado, ts,
+                r.get("fonte_vab", "imesc")))
     return linhas
 
 
@@ -359,7 +368,7 @@ def construir_proveniencia(ts) -> List[tuple]:
     linhas = []
     for r in RAW:
         ano, estimado = r["ano"], r.get("estimado", False)
-        nq = r.get("nq", 4)
+        nq = r.get("nq", NQ_PADRAO)
         legislacao = ("Lei Estadual vigente até 2022" if r["aliq"] == D("0.18")
                       else "Lei 11.867/2022 — alíquota modal 20%")
 
@@ -380,18 +389,23 @@ def construir_proveniencia(ts) -> List[tuple]:
                  "Relatório PIB Trimestral (IMESC); fallback IBGE Contas Regionais",
                  "Estimado — IBGE publica com ~2 anos de lag" if estimado
                  else "Lag de ~2 anos na fonte IBGE",
-                 "ibge_sidra" if estimado else "imesc", 2 if estimado else 1),
+                 r.get("fonte_vab", "imesc"),
+                 2 if r.get("fonte_vab") == "ibge_sidra" else 1),
                 ("ICMS Arrecadado", icms,
                  "GFIS2 (gfis2_ouro.g_arrecadacao)",
-                 "val_icms_normal + val_icms_imp + val_icms_st_sda",
-                 "DADO FICTÍCIO DE PROTÓTIPO", "gfis2", 1),
+                 "Soma de todas as parcelas de ICMS (normal, importação, ST saída, "
+                 "ST entrada, dívida ativa, TVI, FCP, FDI, IDH, fruição)",
+                 "Converge com o SIGDEF/CONFAZ dentro de ~1% em 2020-2023",
+                 "gfis2", 1),
                 ("Exportações", exp,
                  "MDIC ComexStat", f"EXP_{ano}.csv — FOB USD × PTAX",
                  "", "mdic", 1),
                 ("Importações", imp,
-                 "MDIC ComexStat", f"IMP_{ano}.csv — FOB USD × PTAX",
-                 "Inclui combustíveis em trânsito (Porto do Itaqui) — filtro NCM não aplicado",
-                 "mdic_bruto", 3),
+                 "Siscomex (APL_SISCOMEX / SEFAZ-MA)",
+                 "TDS_UF_IMPORTADOR — domicílio fiscal, valor aduaneiro (CIF)",
+                 "Validação cruzada contra MDIC ComexStat: desvio dentro da faixa "
+                 "observada de +2,4% a +12,8% (assinatura CIF sobre FOB)",
+                 "siscomex", 1),
                 ("PTAX média", r["ptax"],
                  "BCB API Olinda", "Média de cotacaoVenda dos dias úteis do período",
                  "", "bcb_olinda", 1),
