@@ -21,8 +21,8 @@ goldens de fórmula em `tests/test_engine/` — eles testam a aritmética, não 
 O `Imp=21.924` vem da apresentação do 79º ENCAT e **não é uma apuração** (ver
 pitfall abaixo); como entrada de golden ele continua válido, porque o teste é
 da conta, não do dado.
-Com as fontes atuais (ICMS do SIGDEF, importações do Siscomex) o 2022 real dá
-VRR ≈ 0,473 e gap ≈ R$ 12.792M. Não confundir os dois.
+Com as fontes atuais (ICMS do GFIS2, importações do Siscomex) o 2022 real dá
+VRR ≈ 0,469 e gap ≈ R$ 12.892M. Não confundir os dois.
 
 ## Arquitetura — pipeline de 7 estágios
 
@@ -50,7 +50,7 @@ A primeira fonte que responde com sucesso vence; falhas levam à próxima.
 | VAB | IBGE SIDRA → IPEADATA → BCB Focus → AutoARIMA forecast → `--vab-manual` |
 | Importações | Snapshot Siscomex → MDIC ComEx → `--imp-manual` |
 | Exportações | MDIC ComEx direto → `--exp-manual` |
-| ICMS Arrecadado | GFIS2 Parquet (fonte única) |
+| ICMS Arrecadado | GFIS2 Parquet → SIGDEF (CONFAZ) |
 | PTAX | BCB API Olinda (fonte única) |
 
 Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
@@ -163,8 +163,16 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
   Configurado em `config/aliquotas.yaml`. Mudanças mid-year não são
   suportadas hoje — usar o ano inteiro com a alíquota vigente.
 
-- **VRR 2019 = 0,213 é suspeito**: comparar com outras UFs e validar se
-  o Parquet GFIS2 tem dados completos para 2019.
+- **A série de ICMS começa em 2020**: o GFIS2 só entra em regime completo em
+  agosto/2019 — o ano de 2019 subestima o arrecadado e produzia o VRR 0,213
+  antes marcado como suspeito (causa confirmada em 2026-08). Não publicar
+  anos anteriores a 2020 com ICMS do GFIS2.
+
+- **ICMS soma todas as parcelas**: `extractors/arrecadacao.py` agrega todas as
+  colunas de parcela do GFIS2. A composição antiga (`normal + imp + st_sda`)
+  subestimava 10-15% — faltavam FCP e dívida ativa. Validação: GFIS2 ×
+  SIGDEF/CONFAZ fecha dentro de ~1% em 2020-2023 (era −10% a −15% antes).
+  O SIGDEF é fallback da cascata, não fonte primária.
 
 ## Comandos principais
 

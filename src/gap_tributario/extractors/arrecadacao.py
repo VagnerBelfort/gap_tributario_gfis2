@@ -28,8 +28,29 @@ from gap_tributario.models import PeriodoCalculo
 
 logger = logging.getLogger(__name__)
 
-# Colunas ICMS a somar para obter o ICMS arrecadado total
-_COLUNAS_ICMS = ["val_icms_normal", "val_icms_imp", "val_icms_st_sda"]
+# Colunas que compõem a arrecadação de ICMS. O GFIS2 reparte o ICMS em várias
+# parcelas e cada linha traz valor em uma só delas (verificado: nas linhas com
+# val_fcp > 0 o val_icms_normal soma zero), então somar todas não duplica nada.
+#
+# Somar apenas normal + imp + st_sda — como se fazia antes — subestimava o total
+# em 10-15% frente ao SIGDEF/CONFAZ, porque deixava de fora o FCP e a dívida
+# ativa, as duas maiores omissões. Com a lista completa as duas fontes convergem
+# dentro de ~1% em 2020-2023.
+#
+# FCP, FDI e IDH são adicionais de alíquota vinculados a fundos. Entram porque o
+# `icms_total` do CONFAZ os engloba, e o VRR compara contra essa mesma definição.
+_COLUNAS_ICMS = [
+    "val_icms_normal",
+    "val_icms_imp",
+    "val_icms_st_sda",
+    "val_icms_st_ent",
+    "val_icms_da",
+    "val_icms_tvi",
+    "val_fcp",
+    "val_fdi",
+    "val_idh",
+    "val_fruicao_ben_fiscal",
+]
 
 # Fator de conversão: R$ unitário → R$ milhões
 _FATOR_MILHOES = Decimal("1000000")
@@ -119,11 +140,13 @@ class ArrecadacaoExtractor:
                     pl.col("per_nro_trimestre") == periodo.trimestre
                 )
 
+            # O schema do GFIS2 evolui e as fixtures de teste trazem um subconjunto:
+            # soma o que existe em vez de quebrar por uma parcela ausente.
+            disponiveis = set(lf_filtrado.collect_schema().names())
+            colunas = [col for col in _COLUNAS_ICMS if col in disponiveis]
+
             resultado = lf_filtrado.select(
-                [
-                    pl.col(col).fill_null(0.0).sum().alias(col)
-                    for col in _COLUNAS_ICMS
-                ]
+                [pl.col(col).fill_null(0.0).sum().alias(col) for col in colunas]
             ).collect()
 
         except pl.exceptions.PolarsError as exc:
@@ -139,13 +162,16 @@ class ArrecadacaoExtractor:
         # Converte para Decimal e divide por 1.000.000 para obter R$ milhões
         icms_milhoes = Decimal(str(soma_reais)) / _FATOR_MILHOES
 
+        parcelas = ", ".join(
+            f"{col.replace('val_', '')}={valor / 1_000_000:.2f} M"
+            for col, valor in zip(colunas, row)
+            if valor
+        )
         logger.info(
-            "ICMS arrecadado %s: R$ %.2f milhões (normal=%.2f M, imp=%.2f M, st_sda=%.2f M)",
+            "ICMS arrecadado %s: R$ %.2f milhões (%s)",
             periodo.label,
             float(icms_milhoes),
-            row[0] / 1_000_000,
-            row[1] / 1_000_000,
-            row[2] / 1_000_000,
+            parcelas or "sem parcelas",
         )
 
         return icms_milhoes

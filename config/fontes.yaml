@@ -38,13 +38,21 @@ exportacoes:
     - manual          # --exp-manual
 
 icms_arrecadado:
-  # SIGDEF (parquet limpo, ICMS total na posição 21 do export — fix de offset).
-  # Cobertura 1997-2023. Anos >2023 caem para o GFIS2. O teste golden 2022
-  # permanece ancorado no GFIS2 (SIGDEF daria 11.494 vs golden 10.917, ~5%;
-  # reconciliação fora de escopo).
+  # GFIS2 é a fonte nº 1: é o sistema da própria SEFAZ-MA e o número que bate
+  # com o portal da casa. Cobertura confiável a partir de 2020 — em 2019 o
+  # Parquet só entra em regime normal a partir de agosto (jan-jul somam menos
+  # de R$ 100 mi/mês contra ~R$ 600 mi), o que produzia o VRR 2019 = 0,213.
+  #
+  # A soma cobre TODAS as parcelas de ICMS. Somar só normal+imp+st_sda
+  # subestimava o total em 10-15%: faltavam FCP e dívida ativa, as duas maiores
+  # omissões. Com a soma completa, GFIS2 e SIGDEF convergem dentro de ~1%
+  # (2020: +0,3%, 2021: -2,3%, 2022: -0,9%, 2023: -1,1%).
+  #
+  # SIGDEF (CONFAZ, parquet limpo, ICMS total na posição 21 do export) fica como
+  # fallback e controle cruzado. Cobertura 1997-2023.
   cascata:
-    - sigdef          # SigdefIcmsExtractor (fonte nº1)
-    - gfis2_parquet   # ArrecadacaoExtractor (fallback, anos >2023)
+    - gfis2_parquet   # ArrecadacaoExtractor (fonte nº1)
+    - sigdef          # SigdefIcmsExtractor (fallback e validação cruzada)
 
 ptax:
   cascata:

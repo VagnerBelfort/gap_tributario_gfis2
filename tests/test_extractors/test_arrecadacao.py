@@ -24,14 +24,15 @@ from gap_tributario.models import PeriodoCalculo
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "parquet"
 FIXTURE_PARQUET = FIXTURE_DIR / "arrecadacao_fixture.parquet"
 
-# Valores esperados calculados com base nos dados da fixture:
-# 2022 anual: val_icms_normal=7.000.000 + val_icms_imp=300.000 + val_icms_st_sda=2.500.000
-#             = 9.800.000 R$ unitário = 9.8 R$ milhões
-ICMS_2022_ANUAL_MILHOES = Decimal("9.8")
+# Valores esperados calculados com base nos dados da fixture. A soma cobre TODAS
+# as parcelas de ICMS presentes nela (a fixture não traz fcp/fdi/idh/fruicao):
+# 2022 anual: normal=7.000.000 + imp=300.000 + st_sda=2.500.000 + st_ent=1.000.000
+#             + tvi=100.000 + da=26.000 = 10.926.000 R$ = 10,926 R$ milhões
+ICMS_2022_ANUAL_MILHOES = Decimal("10.926")
 
-# T1/2022: val_icms_normal=1.000.000 + val_icms_imp=100.000 + val_icms_st_sda=500.000
-#          = 1.600.000 R$ unitário = 1.6 R$ milhões
-ICMS_2022_T1_MILHOES = Decimal("1.6")
+# T1/2022: normal=1.000.000 + imp=100.000 + st_sda=500.000 + st_ent=100.000
+#          + tvi=10.000 + da=5.000 = 1.715.000 R$ = 1,715 R$ milhões
+ICMS_2022_T1_MILHOES = Decimal("1.715")
 
 
 # ---- Fixtures pytest ----
@@ -119,13 +120,16 @@ def test_arrecadacao_extractor_instantiable():
 
 
 def test_extract_periodo_anual_retorna_valor_correto(extractor):
-    """Fixture com dados 2022 (T1-T4) → soma anual = 9.8 M.
+    """Fixture com dados 2022 (T1-T4) → soma anual = 10,926 M.
 
     Dados da fixture:
-    - val_icms_normal: 7.000.000 R$ = 7.0 M
-    - val_icms_imp:    300.000 R$   = 0.3 M
-    - val_icms_st_sda: 2.500.000 R$ = 2.5 M
-    - Total 2022:      9.800.000 R$ = 9.8 M
+    - val_icms_normal:  7.000.000 R$ = 7,000 M
+    - val_icms_imp:       300.000 R$ = 0,300 M
+    - val_icms_st_sda:  2.500.000 R$ = 2,500 M
+    - val_icms_st_ent:  1.000.000 R$ = 1,000 M
+    - val_icms_tvi:       100.000 R$ = 0,100 M
+    - val_icms_da:         26.000 R$ = 0,026 M
+    - Total 2022:      10.926.000 R$ = 10,926 M
     """
     resultado = extractor.extract(PeriodoCalculo(ano=2022))
 
@@ -143,27 +147,30 @@ def test_extract_retorna_decimal_nao_float(extractor):
 def test_extract_valor_em_milhoes_nao_reais(extractor):
     """Verifica que o resultado está em milhões, não em R$ unitário.
 
-    Total 2022 = 9.800.000 R$ → resultado deve ser ~9.8, não ~9.800.000.
+    Total 2022 = 10.926.000 R$ → resultado deve ser ~10,9, não ~10.926.000.
     """
     resultado = extractor.extract(PeriodoCalculo(ano=2022))
 
     # Deve ser ~9.8 M, não ~9.800.000
     assert resultado < Decimal("1000"), f"Valor muito alto ({resultado}): provavelmente em R$ unitário"
     assert resultado > Decimal("1"), f"Valor muito baixo ({resultado}): verificar conversão"
-    assert resultado == Decimal("9.8")
+    assert resultado == Decimal("10.926")
 
 
 # ---- Testes de happy path — período trimestral ----
 
 
 def test_extract_periodo_trimestral_t1_retorna_valor_correto(extractor):
-    """Fixture com dados T1/2022 → soma T1 = 1.6 M.
+    """Fixture com dados T1/2022 → soma T1 = 1,715 M.
 
     Dados da fixture para T1:
-    - val_icms_normal: 1.000.000 R$ = 1.0 M
-    - val_icms_imp:    100.000 R$   = 0.1 M
-    - val_icms_st_sda: 500.000 R$   = 0.5 M
-    - Total T1/2022:   1.600.000 R$ = 1.6 M
+    - val_icms_normal: 1.000.000 R$ = 1,000 M
+    - val_icms_imp:      100.000 R$ = 0,100 M
+    - val_icms_st_sda:   500.000 R$ = 0,500 M
+    - val_icms_st_ent:   100.000 R$ = 0,100 M
+    - val_icms_tvi:       10.000 R$ = 0,010 M
+    - val_icms_da:         5.000 R$ = 0,005 M
+    - Total T1/2022:   1.715.000 R$ = 1,715 M
     """
     resultado = extractor.extract(PeriodoCalculo(ano=2022, trimestre=1))
 
@@ -173,7 +180,7 @@ def test_extract_periodo_trimestral_t1_retorna_valor_correto(extractor):
 def test_extract_trimestral_retorna_apenas_dados_do_trimestre(extractor):
     """Verifica que a filtragem trimestral não inclui outros trimestres.
 
-    T1/2022 (1.6 M) < Total anual/4 confirma que está filtrando corretamente.
+    T1/2022 (1,715 M) < total anual confirma que está filtrando corretamente.
     """
     resultado_t1 = extractor.extract(PeriodoCalculo(ano=2022, trimestre=1))
     resultado_anual = extractor.extract(PeriodoCalculo(ano=2022))
@@ -277,17 +284,89 @@ def test_extract_parquet_corrompido_levanta_extraction_error(tmp_path):
 
 
 def test_extract_conversao_unidade_reais_para_milhoes(extractor):
-    """Verificação explícita da conversão: soma bruta é 9.800.000 → resultado deve ser 9.8.
+    """Verificação explícita da conversão: soma bruta é 10.926.000 → resultado 10,926.
 
-    A fixture tem:
-    - T1: normal=1M + imp=100k + st=500k = 1.6M
-    - T2: normal=2M + imp=200k + st=1M   = 3.2M
-    - T3: normal=3M + imp=0   + st=500k  = 3.5M
-    - T4: normal=1M + imp=0   + st=500k  = 1.5M
-    Total bruto: 9.800.000 R$ → 9.8 R$ milhões
+    Somando todas as parcelas de ICMS da fixture, trimestre a trimestre:
+    - T1: 1M + 100k + 500k + 100k + 10k + 5k = 1,715M
+    - T2: 2M + 200k + 1M   + 200k + 20k + 6k = 3,426M
+    - T3: 3M + 0    + 500k + 300k + 30k + 7k = 3,837M
+    - T4: 1M + 0    + 500k + 400k + 40k + 8k = 1,948M
+    Total bruto: 10.926.000 R$ → 10,926 R$ milhões
     """
     resultado = extractor.extract(PeriodoCalculo(ano=2022))
 
-    # Verificação explícita: 9800000 / 1000000 = 9.8
-    assert resultado == Decimal("9800000") / Decimal("1000000")
-    assert resultado == Decimal("9.8")
+    # Verificação explícita: 10926000 / 1000000 = 10,926
+    assert resultado == Decimal("10926000") / Decimal("1000000")
+    assert resultado == Decimal("10.926")
+
+
+# ---- Testes de composição do ICMS total ----
+#
+# O GFIS2 registra a arrecadação de ICMS repartida em várias colunas. Somar só
+# `normal + imp + st_sda` deixa de fora FCP, dívida ativa, ST entrada e TVI, o
+# que subestimava o total em 10-15% frente ao SIGDEF/CONFAZ. As colunas são
+# mutuamente exclusivas por linha, então somá-las não duplica arrecadação.
+
+
+@pytest.fixture
+def extractor_todas_parcelas(tmp_path: Path) -> ArrecadacaoExtractor:
+    """Parquet com todas as parcelas de ICMS mais tributos que NÃO são ICMS."""
+    parquet_dir = tmp_path / "g_arrecadacao_completo"
+    parquet_dir.mkdir()
+
+    df = pl.DataFrame(
+        {
+            "per_aaaa": [2022],
+            "per_nro_trimestre": [1],
+            # Parcelas de ICMS — devem entrar na soma (total 5.500.000)
+            "val_icms_normal": [1_000_000.0],
+            "val_icms_imp": [100_000.0],
+            "val_icms_st_sda": [200_000.0],
+            "val_icms_st_ent": [300_000.0],
+            "val_icms_da": [400_000.0],
+            "val_icms_tvi": [500_000.0],
+            "val_fcp": [600_000.0],
+            "val_fdi": [700_000.0],
+            "val_idh": [800_000.0],
+            "val_fruicao_ben_fiscal": [900_000.0],
+            # NÃO são ICMS — devem ficar de fora
+            "val_ipva": [50_000_000.0],
+            "val_itcd": [60_000_000.0],
+            "val_outros": [70_000_000.0],
+            "val_juros": [80_000_000.0],
+            "val_multa": [90_000_000.0],
+            # Totalizadores de linha — somariam tudo de novo
+            "val_principal": [99_000_000.0],
+            "val_pgto_total": [99_000_000.0],
+        }
+    )
+    df.write_parquet(parquet_dir / "dados.parquet")
+    return ArrecadacaoExtractor(parquet_base_path=str(parquet_dir))
+
+
+def test_extract_soma_todas_as_parcelas_de_icms(extractor_todas_parcelas):
+    """Todas as parcelas de ICMS entram na soma: 5.500.000 R$ = 5.5 M."""
+    resultado = extractor_todas_parcelas.extract(PeriodoCalculo(ano=2022))
+
+    assert resultado == Decimal("5.5")
+
+
+def test_extract_ignora_tributos_que_nao_sao_icms(extractor_todas_parcelas):
+    """IPVA, ITCD, juros, multa e os totalizadores de linha ficam de fora.
+
+    Se qualquer um entrasse, o resultado passaria de 50 M.
+    """
+    resultado = extractor_todas_parcelas.extract(PeriodoCalculo(ano=2022))
+
+    assert resultado < Decimal("50")
+
+
+def test_extract_tolera_parquet_sem_as_colunas_novas(extractor):
+    """Parquet sem fcp/fdi/idh/fruicao continua somando as parcelas que existem.
+
+    O schema do GFIS2 evolui; a ausência de uma parcela não pode quebrar a
+    extração nem zerar o total.
+    """
+    resultado = extractor.extract(PeriodoCalculo(ano=2022))
+
+    assert resultado == ICMS_2022_ANUAL_MILHOES
