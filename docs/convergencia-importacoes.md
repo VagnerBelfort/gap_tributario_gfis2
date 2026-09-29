@@ -1,9 +1,12 @@
 # Convergência das importações do MA — Siscomex × MDIC
 
-**Escopo:** 2019 a 2025
+**Escopo:** 2019 a 2025, e 2026 por trimestre
 **Data:** 10 de agosto de 2026 — **revisado em 24 de agosto de 2026**, após a
 SEFAZ-MA esclarecer a origem do número apresentado no 79º ENCAT (item 1.1) e
-confirmar o tratamento do campo `TDS_SITUACAO` (item 3.2).
+confirmar o tratamento do campo `TDS_SITUACAO` (item 3.2); **revisado em 23 de
+setembro de 2026** para somar a DUIMP à DI a partir de nov/2025 (item 2.3);
+**revisado em 29 de setembro de 2026** para datar a DUIMP pela chegada da carga
+quando ela é posterior ao registro (item 2.3).
 
 ---
 
@@ -103,19 +106,44 @@ a mesma ponta que o pipeline aplica em todas as conversões. A SEFAZ informou
 5,1648, que é a média de compra; as duas diferem em 0,01% e não alteram
 nenhuma conclusão.
 
+### 2.3 DUIMP — a declaração que substitui a DI
+
+A partir de novembro de 2025, parte das importações passa a ser declarada na
+**DUIMP** (Declaração Única de Importação, do Portal Único de Comércio
+Exterior) em vez da DI. Cada importação está em um dos dois documentos, nunca
+nos dois: a DI encolhe na mesma medida em que a DUIMP cresce. Em 2026 a DUIMP
+já responde por mais da metade do valor.
+
+Os dados vêm da tabela `APL_PUCOMEX.DUIMP`, lida pelo sinônimo `DUIMP` no banco
+ARMA, que a SEFAZ-MA criou em 21/09/2026. Entram no mesmo snapshot, marcadas
+na coluna `fonte`. As regras foram medidas na própria tabela em 23/09/2026
+(`scripts/diagnostico_duimp_arma.py`):
+
+| Regra | Medição |
+|---|---|
+| Uma linha por DUIMP: a de maior `VERSAODECLARACAO` | `STVIGENTE = 'S'` não basta: 228 DUIMPs têm mais de uma versão marcada vigente. Somar todas as versões levava o total de R$ 12,9 bi para R$ 22,9 bi |
+| Valor: `VLMERCADORIALOCALDESCARGAREAL` | Mercadoria no local de descarga, ou seja, CIF. Fica ~5% acima do valor no embarque, a mesma assinatura CIF/FOB da DI |
+| Período: a data mais tardia entre `DATAHORAREGISTRO` e `CARGA.DATACHEGADA` | A tabela não traz data de desembaraço. A SEFAZ-MA (Alan Lima, TI) indicou `APL_PUCOMEX.CARGA.DATACHEGADA` como a data de liberação da mercadoria. A tabela é lida do ARMA pelo dblink `CENTRAL`, uso também confirmado pela TI em 28/09/2026, com join pelo `IDDUIMP` da versão escolhida; há uma carga por DUIMP. A carga costuma chegar antes do registro (em média 9 dias), e aí vale o registro; quando chega depois, a importação só se completa na chegada. `DATACHEGADA` nula vale o registro: R$ 1,2 bi já desembaraçados estão sem ela, então nula não quer dizer importação que não aconteceu. Em 29/09/2026 a regra moveu 4 DUIMPs (R$ 357 mi) de 2025 T4 para 2026 T1 |
+| UF: `IDUFIMPORTADOR` (10 = MA) | É o índice da UF em ordem alfabética do nome. Conferido contra o cadastro: nos CNPJs que casaram, 10 dá MA em 100% dos casos |
+| Todas as situações entram | Pela tabela de situações da SEFAZ, na base aparecem os códigos 5, 6, 8 e 10 (registrada ou em conferência) e 11, 12 e 13 (desembaraçada). Não aparece nenhuma cancelada (22 e 23). A situação 5 ("Registrada. Aguardando resultado da análise de risco") soma ~R$ 2,6 bi em 1.355 DUIMPs e não anda: os valores de jan a jun/2026 ficaram idênticos entre 23/09 e 28/09. 76% delas já têm a carga chegada, em média 9 dias antes do registro. A cópia da SEFAZ não recebe a atualização de situação, e essas são importações reais: sem a situação 5, o 1º semestre de 2026 cairia para −7,6% do MDIC, o que não é plausível (`scripts/diagnostico_duimp_carga.py`) |
+
+A tabela não tem item nem NCM, então nas linhas da DUIMP `capitulo_ncm` e
+`uf_despacho` ficam vazios.
+
 ---
 
 ## 3. Convergência 2019–2025
 
-| Ano | MDIC US$ bi FOB | PTAX média | MDIC R$ bi | Siscomex R$ bi (domicílio) | Δ vs MDIC | Siscomex R$ bi (despacho) | Trânsito |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 2019 | 3,552 | 3,9461 | 14,02 | 14,97 | +6,8% | 15,76 | +5,2% |
-| 2020 | 1,977 | 5,1578 | 10,20 | 11,50 | +12,8% | 12,58 | +9,3% |
-| 2021 | 4,182 | 5,3956 | 22,57 | 24,10 | +6,8% | 25,36 | +5,2% |
-| 2022 | 7,509 | 5,1655 | 38,79 | 39,70 | +2,4% | 43,55 | +9,7% |
-| 2023 | 4,859 | 4,9953 | 24,27 | 25,65 | +5,7% | 26,42 | +3,0% |
-| 2024 | 3,978 | 5,3920 | 21,45 | 23,34 | +8,8% | 23,38 | +0,1% |
-| 2025 | 4,758 | 5,5859 | 26,58 | 27,21 | +2,4% | 27,99 | +2,9% |
+| Ano | MDIC US$ bi FOB | PTAX média | MDIC R$ bi | DI R$ bi | DUIMP R$ bi | Siscomex R$ bi (domicílio) | Δ vs MDIC | DI R$ bi (despacho) | Trânsito DI |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2019 | 3,552 | 3,9461 | 14,02 | 14,97 | 0,00 | 14,97 | +6,8% | 15,76 | +5,2% |
+| 2020 | 1,977 | 5,1578 | 10,20 | 11,50 | 0,00 | 11,50 | +12,8% | 12,58 | +9,3% |
+| 2021 | 4,182 | 5,3956 | 22,57 | 24,10 | 0,00 | 24,10 | +6,8% | 25,36 | +5,2% |
+| 2022 | 7,509 | 5,1655 | 38,79 | 39,70 | 0,00 | 39,70 | +2,4% | 43,55 | +9,7% |
+| 2023 | 4,859 | 4,9953 | 24,27 | 25,65 | 0,00 | 25,65 | +5,7% | 26,42 | +3,0% |
+| 2024 | 3,978 | 5,3920 | 21,45 | 23,34 | 0,00 | 23,34 | +8,8% | 23,38 | +0,1% |
+| 2025 | 4,758 | 5,5859 | 26,58 | 27,21 | 0,62 | 27,83 | +4,7% | 27,99 | +2,9% |
+
 
 A coluna **Δ vs MDIC** é positiva nos sete anos, entre +2,4% e +12,8%, mediana
 +6,8%.
@@ -144,6 +172,33 @@ corretamente exclui.
 Note que o MDIC fica **abaixo** da nossa apuração em todos os anos, apesar de
 incluir o trânsito. O desconto do FOB frente ao CIF é maior que o trânsito, e
 as duas distorções operam em sentidos opostos.
+
+### 3.1 Trimestres com DUIMP (2025–2026)
+
+O ano de 2026 ainda está aberto, então a comparação é por trimestre, só com os
+trimestres que o MDIC já publicou por inteiro
+(`uv run python scripts/serie_mdic_ptax.py --de 2025 --ate 2026 --trimestral`).
+Trimestre isolado oscila mais que o ano: a DUIMP entra pela data mais tardia
+entre o registro e a chegada da carga, e o MDIC pelo mês da operação. O
+corredor de controle vale só para o ano, então os trimestres abaixo não são
+julgados por ele.
+
+| Trimestre | MDIC R$ bi | DI R$ bi | DUIMP R$ bi | DI + DUIMP R$ bi | Δ vs MDIC | Só DI |
+|---|---:|---:|---:|---:|---:|---:|
+| 2025 T4 | 7,56 | 7,09 | 0,62 | 7,71 | +2,0% | −6,2% |
+| 2026 T1 | 5,71 | 2,46 | 4,07 | 6,54 | +14,6% | −56,8% |
+| 2026 T2 | 4,06 | 3,12 | 1,48 | 4,60 | +13,4% | −23,0% |
+| **1º sem/2026** | **9,76** | **5,59** | **5,55** | **11,14** | **+14,1%** | **−42,8%** |
+
+Sem a DUIMP, 2026 sai muito abaixo do MDIC; com ela, volta a ficar acima
+dele, como em todos os anos da série. A regra da chegada desloca R$ 357 mi,
+registrados em dez/2025 com carga chegada em 2026, de 2025 T4 para 2026 T1. Por
+isso 2025 T4 cai para +2,0% e 2026 T1 sobe para +14,6%. Em 2025 a DUIMP é
+pequena (R$ 0,62 bi, só em nov–dez) e leva o ano de +2,4% para +4,7%, dentro
+da faixa. O 1º semestre de 2026, a +14,1%, fica um pouco acima do teto anual
+de +12,8%. Isso deve ser reavaliado quando o ano fechar: o ano ainda está
+aberto, e a situação 5 pode incluir registros que não chegam a desembaraçar.
+
 
 ---
 
@@ -262,6 +317,20 @@ milhões, respectivamente, diferença de 5%. Como a arrecadação é o numerador
 VAT_VRR, essa divergência precisa ser reconciliada antes da consolidação de
 séries históricas. A cobertura do SIGDEF encerra-se em 2023, o que introduz
 mudança de fonte entre 2023 e 2024.
+
+**Data da DUIMP.** A tabela da DUIMP não tem data de desembaraço. A DUIMP
+entra no trimestre da data mais tardia entre o registro e a chegada da carga,
+enquanto a DI entra no trimestre do desembaraço. As duas datas ficam a poucos
+dias do desembaraço, mas uma declaração do fim do trimestre pode cair no
+trimestre vizinho. Sem data de chegada, vale o registro. Esse caso é mais comum
+nos meses recentes, em que a carga ainda pode não ter sido lançada.
+
+**Situação da DUIMP.** Todas as situações entram, inclusive as ainda não
+desembaraçadas (5, 6, 8 e 10). A cópia da SEFAZ não recebe a atualização de
+situação (item 2.3), então filtrar pelas desembaraçadas descartaria
+importações reais. O risco que sobra é uma DUIMP registrada que nunca venha a
+desembaraçar. Não há canceladas na base, e a validação contra o MDIC (item 3)
+não aponta para isso.
 
 **Cobertura temporal.** A análise cobre 2019 em diante, limite imposto pela
 arrecadação confiável. O Siscomex apresenta cobertura confiável a partir de
