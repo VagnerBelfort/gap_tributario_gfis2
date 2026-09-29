@@ -96,6 +96,33 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
   `TDS_SITUACAO = 'N'` **não** é cancelamento (essas DIs desembaraçam e pagam
   II/IPI, então entram); tipos de declaração `01` e nulo.
 
+- **DUIMP soma com a DI a partir de nov/2025**: a DUIMP (Declaração Única de
+  Importação, Portal Único) substitui a DI; cada importação está em uma ou na
+  outra, nunca nas duas. Sem ela, o 1º semestre de 2026 sai 43% abaixo do MDIC.
+  O mesmo job lê a DUIMP do **ARMA** (`10.1.1.132:1521/arma`, sinônimo `DUIMP`
+  → `APL_PUCOMEX.DUIMP@CENTRAL`, criado pela SEFAZ em 21/09/2026). Pelo CENTRAL
+  e pelo nome qualificado dá ORA-00942, e a `VW_CONSULTA_DUIMP` foi desativada
+  pela SEFAZ. O CSV marca cada linha na coluna `fonte` (`DI` | `DUIMP`).
+  Regras medidas em 23/09/2026 (`scripts/diagnostico_duimp_arma.py`):
+  `STVIGENTE='S'` **não** deixa uma linha por DUIMP (228 têm mais de uma
+  versão vigente); vale a maior `VERSAODECLARACAO`, e somar todas levava
+  2025-26 de R$ 12,9 bi para R$ 22,9 bi. O valor é `VLMERCADORIALOCALDESCARGAREAL`
+  (CIF). A tabela não tem data de desembaraço, então o período sai da **data
+  mais tardia entre `DATAHORAREGISTRO` e `DATACHEGADA`**. A chegada vem de
+  `APL_PUCOMEX.CARGA@CENTRAL`, lida do ARMA. Foi a SEFAZ (Alan Lima, TI) que
+  indicou `DATACHEGADA` como a data de liberação e liberou o dblink em
+  28/09/2026, com join pelo `IDDUIMP` da versão escolhida, porque o
+  `IDDUIMP` identifica a versão. Há uma carga por DUIMP, e chegada nula vale o
+  registro (há R$ 1,2 bi desembaraçados sem ela). Essa regra moveu R$ 357 mi
+  de 2025 T4 para 2026 T1. `IDUFIMPORTADOR` é o índice alfabético da UF
+  (10 = MA, conferido com o cadastro). Não tem NCM nem UF de despacho.
+  **Todas as `IDSITUACAODUIMP` entram**: na base aparecem 5, 6, 8 e 10
+  (registrada ou em conferência) e 11, 12 e 13 (desembaraçada), e nenhuma
+  cancelada (22, 23). A situação 5 (~R$ 2,6 bi, "aguardando análise de
+  risco") não anda na cópia da SEFAZ e 76% dela tem a carga chegada, então são
+  importações reais. Sem ela, o 1º sem/2026 cai para −7,6% do MDIC. Medido em
+  `scripts/diagnostico_duimp_carga.py` (28/09/2026).
+
 - **`TDS_SITUACAO` (S/N) — confirmado pela SEFAZ, não filtrar**: em 24/08/2026
   a SEFAZ-MA (Alan Lima, TI) respondeu por e-mail que o campo "vem diretamente
   da Receita, não é utilizado aqui e pode ser desconsiderado". Todas as DIs

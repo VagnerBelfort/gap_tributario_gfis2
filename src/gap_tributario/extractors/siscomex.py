@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 from pathlib import Path
-from typing import Union
+from typing import Dict, Union
 
 import polars as pl
 
@@ -43,6 +43,11 @@ _UF_NAO_IDENTIFICADA = "NI"
 # de número válido. Abaixo deste piso preferimos falhar e deixar a cascata cair
 # para o MDIC, que ao menos cobre o período inteiro.
 _ANO_COBERTURA_CONFIAVEL = 2013
+
+# Declaração de origem de cada linha do snapshot. A DUIMP (Portal Único)
+# substitui a DI a partir de nov/2025; snapshot anterior não tem a coluna.
+_COLUNA_FONTE = "fonte"
+_FONTE_DI = "DI"
 
 
 class SiscomexSnapshotExtractor:
@@ -79,12 +84,35 @@ class SiscomexSnapshotExtractor:
     def extract(self, periodo: PeriodoCalculo) -> Decimal:
         """Extrai as importações do importador maranhense no período.
 
+        Soma DI e DUIMP: cada importação é declarada em um dos dois documentos.
+
         Args:
             periodo: PeriodoCalculo (trimestral ou anual).
 
         Returns:
             Decimal com o valor aduaneiro (CIF) em milhões de R$.
         """
+        total = self._cif_por_fonte(periodo)["cif"].sum()
+        return (Decimal(str(total)) / _FATOR_MILHOES).quantize(Decimal("0.01"))
+
+    def extract_por_fonte(self, periodo: PeriodoCalculo) -> Dict[str, Decimal]:
+        """Importações do MA no período separadas por declaração (DI, DUIMP).
+
+        Snapshot anterior à DUIMP, sem a coluna `fonte`, é todo DI.
+
+        Returns:
+            Dicionário fonte → CIF em milhões de R$. Só aparecem as fontes com
+            linhas no período.
+        """
+        return {
+            linha["fonte"]: (Decimal(str(linha["cif"])) / _FATOR_MILHOES).quantize(
+                Decimal("0.01")
+            )
+            for linha in self._cif_por_fonte(periodo).iter_rows(named=True)
+        }
+
+    def _cif_por_fonte(self, periodo: PeriodoCalculo) -> "pl.DataFrame":
+        """CIF em R$ do importador MA no período, uma linha por fonte."""
         if periodo.ano < self.ano_minimo:
             raise ExtractionError(
                 f"Período {periodo.label} está fora da cobertura confiável do "
@@ -105,15 +133,21 @@ class SiscomexSnapshotExtractor:
         # levanta erro cru do polars. Sem traduzir para ExtractionError, o cli
         # não captura e a cascata nunca cai para o MDIC.
         try:
-            lf = self._scan().filter(
+            lf = self._scan()
+            if _COLUNA_FONTE not in lf.collect_schema().names():
+                lf = lf.with_columns(pl.lit(_FONTE_DI).alias(_COLUNA_FONTE))
+            lf = lf.filter(
                 (pl.col("ano") == periodo.ano) & (pl.col("uf_importador").is_in(ufs))
             )
             if not periodo.is_anual:
                 lf = lf.filter(pl.col("trimestre") == periodo.trimestre)
 
-            resumo = lf.select(
-                pl.col("cif_brl").sum().fill_null(0).alias("cif"), pl.len().alias("linhas")
-            ).collect()
+            por_fonte = (
+                lf.group_by(_COLUNA_FONTE)
+                .agg(pl.col("cif_brl").sum().fill_null(0).alias("cif"))
+                .sort(_COLUNA_FONTE)
+                .collect()
+            )
         except pl.exceptions.PolarsError as exc:
             raise ExtractionError(
                 f"Snapshot do Siscomex em formato inesperado ('{self.snapshot_path}'): "
@@ -121,12 +155,10 @@ class SiscomexSnapshotExtractor:
                 f"Caindo para a próxima fonte da cascata (MDIC ComEx)."
             ) from exc
 
-        if resumo["linhas"].item() == 0:
+        if por_fonte.height == 0:
             raise ExtractionError(
                 f"Snapshot do Siscomex não tem importações do {_UF_MA} para "
                 f"{periodo.label} (ano {periodo.ano}). A cobertura confiável começa "
                 f"em 2013. Caindo para a próxima fonte da cascata (MDIC ComEx)."
             )
-
-        total = resumo["cif"].item()
-        return (Decimal(str(total)) / _FATOR_MILHOES).quantize(Decimal("0.01"))
+        return por_fonte

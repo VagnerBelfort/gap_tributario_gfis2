@@ -368,14 +368,22 @@ def run() -> int:
     # fiscal do importador, que separa a importação maranhense da carga em
     # trânsito por Itaqui. Sem snapshot ou sem cobertura no ano, cai para o MDIC.
     fonte_importacoes = "MDIC ComEx"
+    composicao_importacoes: dict = {}
     comparacao_fontes: list = []
     importacoes_mdic = importacoes_brl
     if args.imp_manual is None:
         try:
-            importacoes_brl = SiscomexSnapshotExtractor(
+            extrator_siscomex = SiscomexSnapshotExtractor(
                 config.siscomex_snapshot_path,
                 incluir_nao_identificado=args.imp_incluir_ni,
-            ).extract(periodo)
+            )
+            importacoes_brl = extrator_siscomex.extract(periodo)
+            # A composição só enriquece a proveniência: se falhar, o total já
+            # lido continua valendo e a nota sai sem a parcela da DUIMP.
+            try:
+                composicao_importacoes = extrator_siscomex.extract_por_fonte(periodo)
+            except ExtractionError:
+                composicao_importacoes = {}
             fonte_importacoes = "Siscomex (SEFAZ-MA)"
             logger.info(
                 "Importações MA %s (Siscomex): R$ %s milhões",
@@ -444,11 +452,26 @@ def run() -> int:
                 )
             )
         elif variavel == "Importações" and fonte_importacoes.startswith("Siscomex"):
+            duimp = composicao_importacoes.get("DUIMP", Decimal("0"))
+            fonte_siscomex = "APL_SISCOMEX (Oracle C3) — snapshot agregado; TDS_UF_IMPORTADOR=MA"
+            nota_duimp = ""
+            if duimp > 0:
+                fonte_siscomex += (
+                    "; APL_PUCOMEX.DUIMP e APL_PUCOMEX.CARGA (ARMA) — IDUFIMPORTADOR=MA"
+                )
+                valor_duimp = f"{duimp:,.0f}".replace(",", ".")
+                nota_duimp = (
+                    f" Inclui R$ {valor_duimp} mi declarados em DUIMP, a declaração do "
+                    "Portal Único que substitui a DI desde nov/2025: valor no local de "
+                    "descarga (CIF), versão vigente de cada DUIMP. A DUIMP não traz data "
+                    "de desembaraço: o período é a data mais tardia entre o registro e a "
+                    "chegada da carga, e o registro quando a chegada falta."
+                )
             proveniencias.append(
                 Proveniencia(
                     variavel=variavel,
                     origem="Siscomex (SEFAZ-MA)",
-                    fonte="APL_SISCOMEX (Oracle C3) — snapshot agregado; TDS_UF_IMPORTADOR=MA",
+                    fonte=fonte_siscomex,
                     data_extracao=data_extracao,
                     observacoes=(
                         "Valor aduaneiro (CIF) por domicílio fiscal do importador, "
@@ -464,6 +487,7 @@ def run() -> int:
                         "Ressalva: inscrição estadual no MA não é domicílio fiscal no "
                         "MA, e o método discordou do Siscomex em ~9% do grupo de "
                         "controle de outras UFs, viés que empurra levemente para cima."
+                        + nota_duimp
                     ),
                 )
             )

@@ -21,6 +21,39 @@ Regras de negócio, todas apuradas empiricamente (diagnósticos 1-3):
   recuperou 2.812 DIs maranhenses (R$ 7,71 bi); restaram 30 sem atribuição. O
   CNPJ é usado só aqui dentro e nunca é exportado.
 
+DUIMP (Declaração Única de Importação, Portal Único) — substitui a DI a partir
+de nov/2025. Lida do ARMA pelo sinônimo `DUIMP` (-> APL_PUCOMEX.DUIMP@CENTRAL),
+criado pela SEFAZ-MA em 21/09/2026; o schema APL_PUCOMEX não é legível direto.
+Regras apuradas no diagnóstico de 23/09/2026 (diagnostico_duimp_arma.py):
+
+- STVIGENTE = 'S' NÃO isola uma linha por DUIMP: 228 DUIMPs têm mais de uma
+  versão marcada vigente. Vale a maior VERSAODECLARACAO de cada NUMERODUIMP.
+  Somar todas as versões inflava o total de R$ 12,9 bi para R$ 22,9 bi.
+- Valor: VLMERCADORIALOCALDESCARGAREAL (mercadoria no local de descarga = CIF).
+  A razão sobre o valor no embarque fica em ~1,05, a assinatura CIF/FOB da DI.
+- Período: a data mais tardia entre DATAHORAREGISTRO e a DATACHEGADA da carga
+  (APL_PUCOMEX.CARGA@CENTRAL, lida do ARMA). A SEFAZ-MA (TI) indicou
+  DATACHEGADA como a data de liberação e confirmou o uso do dblink em
+  28/09/2026. A DUIMP não tem data de desembaraço. A carga
+  costuma chegar antes do registro (em média 9 dias), e aí vale o registro;
+  quando chega depois, a importação só se completa na chegada. DATACHEGADA
+  nula não significa importação que não aconteceu (há R$ 1,2 bi desembaraçados
+  sem ela): vale o registro. Join pelo IDDUIMP da versão escolhida, que
+  identifica a versão, não a declaração. Diagnóstico de 28/09/2026
+  (diagnostico_duimp_carga.py): uma carga por DUIMP; a regra desloca
+  ~R$ 357 mi de 2025-T4 para 2026-T1.
+- UF: IDUFIMPORTADOR é o índice da UF em ordem alfabética do nome (10 = MA).
+  Conferido contra o cadastro: 10 → MA em 100% dos CNPJs casados, 2 → AL.
+  Nulo cai para o cadastro, como na DI.
+- Situação (IDSITUACAODUIMP): todas entram. Na base aparecem 5, 6, 8, 10
+  (registrada ou em conferência) e 11, 12, 13 (desembaraçadas); nenhuma
+  cancelada (22, 23). A situação 5 ("aguardando análise de risco", ~R$ 2,6 bi)
+  não anda na cópia da SEFAZ, e 76% dessas DUIMPs têm a carga chegada: são
+  importações reais. Sem ela, o 1º semestre de 2026 cairia a −7,6% do MDIC.
+- Sem item nem NCM na tabela: capitulo_ncm e uf_despacho saem vazios.
+
+O CSV marca a origem de cada linha na coluna `fonte` (DI | DUIMP).
+
 Uso:
   spark3-submit --master yarn --deploy-mode client \
     --jars /gfis2/jars/ojdbc8.jar \
@@ -34,8 +67,11 @@ import os
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
 JDBC_URL = "jdbc:oracle:thin:@10.1.1.132:1521/cent"
+# A DUIMP só é legível pelo sinônimo no ARMA; o mesmo usuário vale nos dois.
+JDBC_URL_DUIMP = "jdbc:oracle:thin:@10.1.1.132:1521/arma"
 USER = os.environ.get("SISCOMEX_ORACLE_USER", "WEB_GFIS2")
 PASSWORD = os.environ.get("SISCOMEX_ORACLE_PASSWORD")
 if not PASSWORD:
@@ -74,6 +110,59 @@ _SQL_ITENS = """
 """
 
 
+# Todas as linhas vigentes; a versão vigente de cada DUIMP é escolhida no Spark.
+_SQL_DUIMP = """
+    SELECT NUMERODUIMP                              AS num_decl,
+           VERSAODECLARACAO                         AS versao,
+           IDDUIMP                                  AS id_duimp,
+           DATAHORAREGISTRO                         AS registro,
+           IDUFIMPORTADOR                           AS id_uf,
+           CNPJIMPORTADOR                           AS cnpj,
+           VLMERCADORIALOCALDESCARGAREAL            AS cif
+      FROM DUIMP
+     WHERE STVIGENTE = 'S'
+       AND DATAHORAREGISTRO IS NOT NULL
+"""
+
+# Chegada da carga por versão da DUIMP. O diagnóstico achou uma carga por
+# DUIMP; o MAX só impede que uma duplicata futura multiplique o valor no join.
+_SQL_CARGA = """
+    SELECT IDDUIMP          AS id_duimp,
+           MAX(DATACHEGADA) AS chegada
+      FROM APL_PUCOMEX.CARGA@CENTRAL
+     WHERE IDDUIMP IS NOT NULL
+     GROUP BY IDDUIMP
+"""
+
+# IDUFIMPORTADOR → sigla: índice da UF em ordem alfabética do nome.
+_UF_POR_ID_DUIMP = dict(
+    enumerate(
+        [
+            "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA",
+            "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+        ],
+        start=1,
+    )
+)
+
+COLUNAS_SAIDA = [
+    "ano", "trimestre", "capitulo_ncm", "uf_despacho", "uf_importador", "dis", "cif_brl", "fonte",
+]
+
+
+def _ler_oracle(spark, url, sql):
+    return (
+        spark.read.format("jdbc")
+        .option("url", url)
+        .option("query", sql)
+        .option("user", USER)
+        .option("password", PASSWORD)
+        .option("driver", DRIVER)
+        .option("fetchsize", "5000")
+        .load()
+    )
+
+
 def _norm_cnpj(coluna):
     """CNPJ como string de 14 dígitos, sem '.0' de decimal e com zeros à esquerda."""
     limpo = F.regexp_replace(coluna.cast("string"), r"\.0+$", "")
@@ -95,16 +184,7 @@ def main():
     )
     spark.sparkContext.setLogLevel("ERROR")
 
-    itens = (
-        spark.read.format("jdbc")
-        .option("url", JDBC_URL)
-        .option("query", _SQL_ITENS)
-        .option("user", USER)
-        .option("password", PASSWORD)
-        .option("driver", DRIVER)
-        .option("fetchsize", "5000")
-        .load()
-    )
+    itens = _ler_oracle(spark, JDBC_URL, _SQL_ITENS)
 
     # --- Resolução da UF nula pelo cadastro de contribuintes -----------------
     # A UF do contribuinte PJ está em `uf_icms` (preenchida em 4,646 mi das
@@ -166,22 +246,97 @@ def main():
     )
 
     # --- Agregado exportável: sem CNPJ, sem nível de DI ----------------------
-    agregado = (
+    agregado_di = (
         resolvido.groupBy("ano", "trimestre", "capitulo_ncm", "uf_despacho", "uf_final")
         .agg(
             F.countDistinct("num_decl").alias("dis"),
             F.sum("cif").alias("cif_brl"),
         )
-        .orderBy("ano", "trimestre", "capitulo_ncm", "uf_despacho", "uf_final")
+        .withColumn("fonte", F.lit("DI"))
     )
 
-    print("\n=== TOTAL POR ANO, IMPORTADOR MA ===")
+    # --- DUIMP ---------------------------------------------------------------
+    duimp = _ler_oracle(spark, JDBC_URL_DUIMP, _SQL_DUIMP)
+    versao_vigente = Window.partitionBy("num_decl").orderBy(
+        F.desc("versao"), F.desc("id_duimp")
+    )
+    duimp = (
+        duimp.withColumn("rk", F.row_number().over(versao_vigente))
+        .filter(F.col("rk") == 1)
+        .drop("rk")
+    )
+    # greatest do Spark ignora nulos: sem chegada, vale o registro.
+    carga = _ler_oracle(spark, JDBC_URL_DUIMP, _SQL_CARGA)
+    duimp = (
+        duimp.join(carga, on="id_duimp", how="left")
+        .withColumn(
+            "referencia",
+            F.greatest(
+                F.col("registro").cast("timestamp"), F.col("chegada").cast("timestamp")
+            ),
+        )
+        .withColumn("ano", F.year("referencia"))
+        .withColumn("trimestre", F.quarter("referencia"))
+        .cache()
+    )
+
+    print("\n=== DUIMP MA: TRIMESTRE DO REGISTRO × TRIMESTRE ADOTADO (R$ mi) ===")
+    (
+        duimp.filter(F.col("id_uf").cast("int") == 10)
+        .withColumn("tri_registro", F.concat_ws(
+            "-T", F.year("registro").cast("string"), F.quarter("registro").cast("string")
+        ))
+        .withColumn("tri_adotado", F.concat_ws("-T", F.col("ano").cast("string"), F.col("trimestre").cast("string")))
+        .groupBy("tri_registro", "tri_adotado")
+        .agg(
+            F.count("*").alias("duimps"),
+            F.sum(F.col("chegada").isNotNull().cast("int")).alias("com_chegada"),
+            F.round(F.sum("cif") / 1e6, 1).alias("cif_mi"),
+        )
+        .orderBy("tri_registro", "tri_adotado")
+        .show(60, truncate=False)
+    )
+
+    mapa_uf = F.create_map(
+        *[x for i, uf in _UF_POR_ID_DUIMP.items() for x in (F.lit(i), F.lit(uf))]
+    )
+    duimp_resolvido = (
+        duimp.withColumn("cnpj_norm", _norm_cnpj(F.col("cnpj")))
+        .join(cadastro, on="cnpj_norm", how="left")
+        .withColumn(
+            "uf_final",
+            F.coalesce(
+                mapa_uf[F.col("id_uf").cast("int")],
+                F.nullif(F.trim(F.col("uf_cadastro")), F.lit("")),
+                F.lit("NI"),
+            ),
+        )
+    )
+    agregado_duimp = (
+        duimp_resolvido.groupBy("ano", "trimestre", "uf_final")
+        .agg(
+            F.countDistinct("num_decl").alias("dis"),
+            F.sum("cif").alias("cif_brl"),
+        )
+        .withColumn("capitulo_ncm", F.lit(None).cast("int"))
+        .withColumn("uf_despacho", F.lit(None).cast("string"))
+        .withColumn("fonte", F.lit("DUIMP"))
+    )
+
+    colunas = ["ano", "trimestre", "capitulo_ncm", "uf_despacho", "uf_final", "dis", "cif_brl", "fonte"]
+    agregado = (
+        agregado_di.select(*colunas)
+        .unionByName(agregado_duimp.select(*colunas))
+        .orderBy("ano", "trimestre", "fonte", "capitulo_ncm", "uf_despacho", "uf_final")
+    )
+
+    print("\n=== TOTAL POR ANO E FONTE, IMPORTADOR MA ===")
     (
         agregado.filter(F.col("uf_final") == "MA")
-        .groupBy("ano")
+        .groupBy("ano", "fonte")
         .agg(F.sum("dis").alias("dis"), (F.sum("cif_brl") / 1e9).alias("cif_bi"))
-        .orderBy("ano")
-        .show(30, truncate=False)
+        .orderBy("ano", "fonte")
+        .show(60, truncate=False)
     )
 
     # A origem tem datas de desembaraço com ano digitado errado (18, 202, 203...).
@@ -199,9 +354,7 @@ def main():
     linhas = agregado.collect()
     with open(args.saida, "w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh, delimiter=";")
-        writer.writerow(
-            ["ano", "trimestre", "capitulo_ncm", "uf_despacho", "uf_importador", "dis", "cif_brl"]
-        )
+        writer.writerow(COLUNAS_SAIDA)
         for r in linhas:
             writer.writerow(
                 [
@@ -212,6 +365,7 @@ def main():
                     r["uf_final"] or "",
                     int(r["dis"]),
                     f"{float(r['cif_brl'] or 0):.2f}",
+                    r["fonte"],
                 ]
             )
 

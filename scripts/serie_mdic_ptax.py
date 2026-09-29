@@ -13,6 +13,11 @@ local é o snapshot já versionado em `bases/siscomex_importacoes.csv`.
 Uso:
   uv run python scripts/serie_mdic_ptax.py
   uv run python scripts/serie_mdic_ptax.py --de 2019 --ate 2025 --formato markdown
+  uv run python scripts/serie_mdic_ptax.py --de 2025 --ate 2026 --trimestral
+
+O snapshot soma DI e DUIMP (coluna `fonte`); a tabela mostra as duas parcelas.
+O ano ainda aberto só é comparável por trimestre: `--trimestral` usa apenas os
+trimestres que o MDIC já publicou por inteiro.
 """
 
 from __future__ import annotations
@@ -25,13 +30,13 @@ import urllib.request
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 COMEXSTAT_URL = "https://api-comexstat.mdic.gov.br/general"
 PTAX_URL = (
     "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/"
     "CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)"
-    "?@dataInicial='01-01-{ano}'&@dataFinalCotacao='12-31-{ano}'"
+    "?@dataInicial='{inicio}'&@dataFinalCotacao='{fim}'"
     "&$format=json&$select=cotacaoCompra,cotacaoVenda"
 )
 SNAPSHOT_PADRAO = Path("bases/siscomex_importacoes.csv")
@@ -47,12 +52,11 @@ def _get(url: str, corpo: bytes = None) -> dict:
         return json.loads(resp.read())
 
 
-def importacoes_fob_usd(de: int, ate: int) -> Dict[int, Decimal]:
-    """US$ FOB de importação do MA por ano, do ComexStat (UF do produto)."""
+def _fob_ma(de: int, ate: int, mensal: bool) -> list:
     corpo = json.dumps(
         {
             "flow": "import",
-            "monthDetail": False,
+            "monthDetail": mensal,
             "yearDetail": True,
             "period": {"from": f"{de}-01", "to": f"{ate}-12"},
             "filters": [],
@@ -60,37 +64,64 @@ def importacoes_fob_usd(de: int, ate: int) -> Dict[int, Decimal]:
             "metrics": ["metricFOB"],
         }
     ).encode()
-    lista = _get(COMEXSTAT_URL, corpo)["data"]["list"]
-    return {
-        int(r["year"]): Decimal(r["metricFOB"]) for r in lista if r["state"] == UF
-    }
+    return [r for r in _get(COMEXSTAT_URL, corpo)["data"]["list"] if r["state"] == UF]
 
 
-def ptax_media_venda(ano: int) -> Decimal:
-    """Média anual das cotações de venda da PTAX — a ponta que o pipeline usa."""
-    valores = _get(PTAX_URL.format(ano=ano))["value"]
+def importacoes_fob_usd(de: int, ate: int) -> Dict[int, Decimal]:
+    """US$ FOB de importação do MA por ano, do ComexStat (UF do produto)."""
+    return {int(r["year"]): Decimal(r["metricFOB"]) for r in _fob_ma(de, ate, mensal=False)}
+
+
+def importacoes_fob_usd_trimestral(de: int, ate: int) -> Dict[Tuple[int, int], Decimal]:
+    """US$ FOB por trimestre, só dos trimestres com os três meses publicados."""
+    fob: Dict[Tuple[int, int], Decimal] = defaultdict(Decimal)
+    meses: Dict[Tuple[int, int], set] = defaultdict(set)
+    for r in _fob_ma(de, ate, mensal=True):
+        mes = int(r["monthNumber"])
+        chave = (int(r["year"]), (mes - 1) // 3 + 1)
+        fob[chave] += Decimal(r["metricFOB"])
+        meses[chave].add(mes)
+    return {k: v for k, v in fob.items() if len(meses[k]) == 3}
+
+
+def _ptax_media(inicio: str, fim: str) -> Decimal:
+    valores = _get(PTAX_URL.format(inicio=inicio, fim=fim))["value"]
     total = sum(Decimal(str(v["cotacaoVenda"])) for v in valores)
     return total / Decimal(len(valores))
 
 
-def importacoes_siscomex(snapshot: Path) -> Dict[int, Dict[str, Decimal]]:
-    """Soma o snapshot por ano, separando domicílio fiscal de local de despacho."""
-    domicilio: Dict[int, Decimal] = defaultdict(Decimal)
-    despacho: Dict[int, Decimal] = defaultdict(Decimal)
+def ptax_media_venda(ano: int) -> Decimal:
+    """Média anual das cotações de venda da PTAX — a ponta que o pipeline usa."""
+    return _ptax_media(f"01-01-{ano}", f"12-31-{ano}")
+
+
+def ptax_media_venda_trimestre(ano: int, trimestre: int) -> Decimal:
+    """Média das cotações de venda da PTAX no trimestre."""
+    inicio, fim = {1: ("01-01", "03-31"), 2: ("04-01", "06-30"),
+                   3: ("07-01", "09-30"), 4: ("10-01", "12-31")}[trimestre]
+    return _ptax_media(f"{inicio}-{ano}", f"{fim}-{ano}")
+
+
+def importacoes_siscomex(snapshot: Path, trimestral: bool = False) -> Dict:
+    """Soma o snapshot por ano (ou ano × trimestre), por fonte e critério de UF.
+
+    `DI` e `DUIMP` são o domicílio fiscal do importador em cada declaração.
+    `despacho` só existe para a DI: a DUIMP não traz UF de despacho.
+    """
+    somas: Dict = defaultdict(lambda: {"DI": Decimal(0), "DUIMP": Decimal(0), "despacho": Decimal(0)})
     with snapshot.open(encoding="utf-8") as f:
         for linha in csv.DictReader(f, delimiter=";"):
             ano = linha["ano"]
             if len(ano) != 4:  # anos digitados errado na origem (18, 202, 203...)
                 continue
+            chave = (int(ano), int(linha["trimestre"])) if trimestral else int(ano)
             valor = Decimal(linha["cif_brl"])
+            fonte = linha.get("fonte") or "DI"
             if linha["uf_importador"] == "MA":
-                domicilio[int(ano)] += valor
+                somas[chave][fonte] += valor
             if linha["uf_despacho"] == "MA":
-                despacho[int(ano)] += valor
-    return {
-        ano: {"domicilio": domicilio[ano], "despacho": despacho[ano]}
-        for ano in sorted(set(domicilio) | set(despacho))
-    }
+                somas[chave]["despacho"] += valor
+    return dict(somas)
 
 
 def _br(valor: Decimal, casas: int = 2) -> str:
@@ -103,6 +134,14 @@ def _pct(valor: Decimal) -> str:
     return f"{valor:+.1f}%".replace(".", ",")
 
 
+def _mediana(valores: list) -> Decimal:
+    ordenados = sorted(valores)
+    meio = len(ordenados) // 2
+    if len(ordenados) % 2:
+        return ordenados[meio]
+    return (ordenados[meio - 1] + ordenados[meio]) / 2
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--de", type=int, default=2019, help="Ano inicial")
@@ -113,49 +152,64 @@ def main() -> int:
     parser.add_argument(
         "--formato", choices=("markdown", "csv"), default="markdown", help="Saída"
     )
+    parser.add_argument(
+        "--trimestral",
+        action="store_true",
+        help="Compara por trimestre (só os trimestres fechados no MDIC)",
+    )
     args = parser.parse_args()
 
     if not args.snapshot.exists():
         print(f"Snapshot não encontrado: {args.snapshot}", file=sys.stderr)
         return 2
 
-    fob = importacoes_fob_usd(args.de, args.ate)
-    siscomex = importacoes_siscomex(args.snapshot)
+    if args.trimestral:
+        fob = importacoes_fob_usd_trimestral(args.de, args.ate)
+        ptax_de = lambda k: ptax_media_venda_trimestre(*k)  # noqa: E731
+        rotulo = "Trimestre"
+    else:
+        fob = importacoes_fob_usd(args.de, args.ate)
+        ptax_de = ptax_media_venda
+        rotulo = "Ano"
+    siscomex = importacoes_siscomex(args.snapshot, trimestral=args.trimestral)
 
     if args.formato == "markdown":
         print(
-            "| Ano | MDIC US$ bi FOB | PTAX média | MDIC R$ bi | "
-            "Siscomex R$ bi (domicílio) | Δ vs MDIC | Siscomex R$ bi (despacho) | Trânsito |"
+            f"| {rotulo} | MDIC US$ bi FOB | PTAX média | MDIC R$ bi | DI R$ bi | "
+            "DUIMP R$ bi | Siscomex R$ bi (domicílio) | Δ vs MDIC | "
+            "DI R$ bi (despacho) | Trânsito DI |"
         )
-        print("|---|---:|---:|---:|---:|---:|---:|---:|")
+        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 
     desvios = []
-    for ano in range(args.de, args.ate + 1):
-        if ano not in fob or ano not in siscomex:
+    for chave in sorted(fob):
+        ano = chave[0] if args.trimestral else chave
+        if not args.de <= ano <= args.ate or chave not in siscomex:
             continue
-        ptax = ptax_media_venda(ano)
-        mdic = fob[ano] * ptax / Decimal("1e9")
-        dom = siscomex[ano]["domicilio"] / Decimal("1e9")
-        desp = siscomex[ano]["despacho"] / Decimal("1e9")
+        rot = f"{chave[0]} T{chave[1]}" if args.trimestral else str(chave)
+        ptax = ptax_de(chave)
+        mdic = fob[chave] * ptax / Decimal("1e9")
+        di = siscomex[chave]["DI"] / Decimal("1e9")
+        duimp = siscomex[chave]["DUIMP"] / Decimal("1e9")
+        dom = di + duimp
+        desp = siscomex[chave]["despacho"] / Decimal("1e9")
         desvio = (dom - mdic) / mdic * Decimal("100")
-        transito = (desp - dom) / dom * Decimal("100")
+        transito = (desp - di) / di * Decimal("100")
         desvios.append(desvio)
 
         if args.formato == "markdown":
             print(
-                f"| {ano} | {_br(fob[ano] / Decimal('1e9'), 3)} | {_br(ptax, 4)} | "
-                f"{_br(mdic)} | {_br(dom)} | {_pct(desvio)} | {_br(desp)} | "
-                f"{_pct(transito)} |"
+                f"| {rot} | {_br(fob[chave] / Decimal('1e9'), 3)} | {_br(ptax, 4)} | "
+                f"{_br(mdic)} | {_br(di)} | {_br(duimp)} | {_br(dom)} | {_pct(desvio)} | "
+                f"{_br(desp)} | {_pct(transito)} |"
             )
         else:
-            print(f"{ano};{fob[ano]};{ptax};{mdic};{dom};{desvio};{desp};{transito}")
+            print(f"{rot};{fob[chave]};{ptax};{mdic};{di};{duimp};{dom};{desvio};{desp};{transito}")
 
     if desvios and args.formato == "markdown":
-        ordenados = sorted(desvios)
-        mediana = ordenados[len(ordenados) // 2]
         print(
             f"\nFaixa observada: {_pct(min(desvios))} a {_pct(max(desvios))} "
-            f"(mediana {_pct(mediana)}) — conferir contra FAIXA_OBSERVADA "
+            f"(mediana {_pct(_mediana(desvios))}) — conferir contra FAIXA_OBSERVADA "
             "em src/gap_tributario/engine/comparacao.py"
         )
     return 0

@@ -214,3 +214,69 @@ def test_ano_minimo_e_configuravel(tmp_path):
     extractor = SiscomexSnapshotExtractor(snapshot, ano_minimo=2009)
 
     assert extractor.extract(PeriodoCalculo(ano=2011)) == Decimal("1000")
+
+
+# --- DUIMP: a declaração do Portal Único que substitui a DI --------------------
+# A partir de nov/2025 parte das importações do MA passa a ser declarada em
+# DUIMP em vez de DI. O snapshot marca a origem na coluna `fonte`; a DUIMP não
+# traz NCM nem UF de despacho, então essas colunas vêm vazias.
+
+_COLUNAS_COM_FONTE = _COLUNAS + ["fonte"]
+
+
+def _escrever_snapshot_com_fonte(path, linhas):
+    """Snapshot no formato com a coluna `fonte` (DI | DUIMP)."""
+    pl.DataFrame(linhas, schema=_COLUNAS_COM_FONTE, orient="row").write_csv(
+        path, separator=";"
+    )
+    return path
+
+
+def test_periodo_soma_di_e_duimp_do_importador_ma(tmp_path):
+    """Uma importação é declarada em DI ou em DUIMP; o total do MA é a soma."""
+    snapshot = _escrever_snapshot_com_fonte(
+        tmp_path / "siscomex.csv",
+        [
+            (2026, 1, 27, "MA", "MA", 10, 2_000_000_000.0, "DI"),
+            (2026, 1, None, None, "MA", 50, 3_000_000_000.0, "DUIMP"),
+            (2026, 1, None, None, "PR", 5, 1_000_000_000.0, "DUIMP"),  # outra UF
+        ],
+    )
+
+    resultado = SiscomexSnapshotExtractor(snapshot).extract(PeriodoCalculo(ano=2026))
+
+    assert resultado == Decimal("5000")
+
+
+def test_composicao_separa_di_e_duimp(tmp_path):
+    """A proveniência precisa dizer quanto do total veio de cada declaração."""
+    snapshot = _escrever_snapshot_com_fonte(
+        tmp_path / "siscomex.csv",
+        [
+            (2026, 1, 27, "MA", "MA", 10, 2_000_000_000.0, "DI"),
+            (2026, 2, 31, "MA", "MA", 10, 500_000_000.0, "DI"),
+            (2026, 1, None, None, "MA", 50, 3_000_000_000.0, "DUIMP"),
+            (2026, 1, None, None, "PR", 5, 1_000_000_000.0, "DUIMP"),
+        ],
+    )
+
+    composicao = SiscomexSnapshotExtractor(snapshot).extract_por_fonte(
+        PeriodoCalculo(ano=2026, trimestre=1)
+    )
+
+    assert composicao == {"DI": Decimal("2000"), "DUIMP": Decimal("3000")}
+
+
+def test_snapshot_sem_coluna_fonte_e_todo_di(tmp_path):
+    """Snapshot gerado antes da DUIMP continua válido: tudo nele é DI."""
+    snapshot = _escrever_snapshot(
+        tmp_path / "siscomex.csv",
+        [
+            (2022, 1, 27, "MA", "MA", 10, 1_000_000_000.0),
+            (2022, 2, 31, "MA", "MA", 10, 2_000_000_000.0),
+        ],
+    )
+
+    composicao = SiscomexSnapshotExtractor(snapshot).extract_por_fonte(PeriodoCalculo(ano=2022))
+
+    assert composicao == {"DI": Decimal("3000")}
