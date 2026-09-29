@@ -765,8 +765,9 @@ def test_proveniencia_siscomex_registra_a_parcela_da_duimp(config_path, saida):
     """Quando o período tem DUIMP, a proveniência diz quanto veio dela e como.
 
     A DUIMP substitui a DI a partir de nov/2025 e não tem data de desembaraço:
-    o período é atribuído pela data de registro. Isso muda a leitura do número
-    e precisa estar no relatório.
+    o período é a data mais tardia entre o registro e a chegada da carga
+    (APL_PUCOMEX.CARGA). Isso muda a leitura do número e precisa estar no
+    relatório. Só o milhar do valor vira ponto; a pontuação do texto fica.
     """
     with _mock_extractors(), patch(
         "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
@@ -795,8 +796,10 @@ def test_proveniencia_siscomex_registra_a_parcela_da_duimp(config_path, saida):
     (imp,) = [p for p in proveniencias if p.variavel == "Importações"]
     assert "APL_PUCOMEX" in imp.fonte
     assert "DUIMP" in imp.observacoes
+    assert "APL_PUCOMEX.CARGA" in imp.fonte
     assert "3.717" in imp.observacoes
-    assert "data de registro" in imp.observacoes
+    assert "chegada da carga" in imp.observacoes
+    assert "descarga (CIF)," in imp.observacoes
 
 
 # ---------------------------------------------------------------------------

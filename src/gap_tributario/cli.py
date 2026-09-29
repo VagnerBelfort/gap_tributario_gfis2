@@ -456,13 +456,17 @@ def run() -> int:
             fonte_siscomex = "APL_SISCOMEX (Oracle C3) — snapshot agregado; TDS_UF_IMPORTADOR=MA"
             nota_duimp = ""
             if duimp > 0:
-                fonte_siscomex += "; APL_PUCOMEX.DUIMP (ARMA) — IDUFIMPORTADOR=MA"
+                fonte_siscomex += (
+                    "; APL_PUCOMEX.DUIMP e APL_PUCOMEX.CARGA (ARMA) — IDUFIMPORTADOR=MA"
+                )
+                valor_duimp = f"{duimp:,.0f}".replace(",", ".")
                 nota_duimp = (
-                    f" Inclui R$ {duimp:,.0f} mi declarados em DUIMP, a declaração do "
+                    f" Inclui R$ {valor_duimp} mi declarados em DUIMP, a declaração do "
                     "Portal Único que substitui a DI desde nov/2025: valor no local de "
-                    "descarga (CIF), versão vigente de cada DUIMP, período pela data de "
-                    "registro — a tabela não traz data de desembaraço."
-                ).replace(",", ".")
+                    "descarga (CIF), versão vigente de cada DUIMP. A DUIMP não traz data "
+                    "de desembaraço: o período é a data mais tardia entre o registro e a "
+                    "chegada da carga, e o registro quando a chegada falta."
+                )
             proveniencias.append(
                 Proveniencia(
                     variavel=variavel,
