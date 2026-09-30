@@ -47,14 +47,19 @@ A primeira fonte que responde com sucesso vence; falhas levam à próxima.
 
 | Variável | Ordem da cascata |
 |---|---|
-| VAB | `--vab-manual` (override) → IMESC PIB Trimestral → IBGE SIDRA |
-| Importações | Snapshot Siscomex → MDIC ComEx → `--imp-manual` |
-| Exportações | MDIC ComEx direto → `--exp-manual` |
+| VAB | IMESC PIB Trimestral → IBGE SIDRA |
+| Importações | Snapshot Siscomex → MDIC ComEx |
+| Exportações | MDIC ComEx direto |
 | ICMS Arrecadado | GFIS2 Parquet → SIGDEF (CONFAZ) |
 | PTAX | BCB API Olinda (fonte única) |
 
-A ordem vive em `cli.py`; `config/fontes.yaml` só a documenta e precisa
-acompanhar qualquer mudança nela. Cada resultado carrega um objeto
+`--vab-manual`, `--imp-manual` e `--exp-manual` são override: quando
+informados, vencem a cascata da variável e valem para o **período pedido**
+(num trimestre, o valor do trimestre).
+
+A ordem vive em `cli.py`. O `config/fontes.yaml` ainda não é lido pelo código;
+ele registra a ordem e o porquê de cada fonte, e muda junto com o `cli.py`.
+Cada resultado carrega um objeto
 `Proveniencia` que vira linha no relatório final.
 
 ## Pontos de atenção (dívida e pitfalls)
@@ -183,18 +188,19 @@ acompanhar qualquer mudança nela. Cada resultado carrega um objeto
   soma os quatro. A soma de 2022 dá 124.859, o mesmo VAB do IBGE usado nos
   goldens.
 
-- **2026 ainda não tem VAB**: o IMESC publicou o 1º tri/2026 em 02/07/2026 e
-  arquivou o site em 04/07/2026 por vedação eleitoral (Lei 9.504/1997); os
-  arquivos em `wp-content/uploads` redirecionam para a home e não há cópia
-  em arquivos da web. Hoje `--periodo 2026-TN` termina em erro, a menos que
-  se passe `--vab-manual`. Esse valor é o VAB **do período pedido**, então
-  num trimestre é o VAB trimestral.
+- **2026 não tem VAB (vedação eleitoral do IMESC)**: o IMESC publicou o 1º
+  tri/2026 em 02/07/2026 e arquivou o site em 04/07/2026; os arquivos em
+  `wp-content/uploads` redirecionam para a home e não há cópia em arquivos da
+  web. Sem `--vab-manual`, qualquer período de 2026 (ano ou trimestre)
+  termina em erro: o IMESC não cobre e o SIDRA ainda não publicou.
 
-- **IBGE SIDRA é o fallback de anos anteriores a 2021**: Contas Regionais
-  (tabela 5938) publica o ano N no final do ano N+2. A variável 37 é PIB, não
-  VAB; aplicamos `VAB = PIB × 0.8932`, razão das Contas Regionais de 2022 (o
-  IMESC dá a mesma em 2022, mas ~0,85 em 2024-2025, quando os impostos passam
-  a pesar mais). No trimestre, o extrator divide o ano por 4.
+- **IBGE SIDRA cobre o que o IMESC não cobre**: o CLI cai para ele sempre que
+  o IMESC falha. Como o ICMS começa em 2020, na prática só atende 2020.
+  Contas Regionais (tabela 5938) publica o ano N no final do ano N+2. A
+  variável 37 é PIB, não VAB; aplicamos `VAB = PIB × 0.8932`, razão das
+  Contas Regionais de 2022 (o IMESC dá a mesma em 2022, mas ~0,85 em
+  2024-2025, quando os impostos passam a pesar mais). No trimestre, o
+  extrator divide o ano por 4.
 
 - **Alíquota mudou em 2023**: Lei 11.867/2022 elevou de 18% para 20%.
   Configurado em `config/aliquotas.yaml`. Mudanças mid-year não são
@@ -217,7 +223,7 @@ acompanhar qualquer mudança nela. Cada resultado carrega um objeto
 uv sync                                      # instala deps
 uv run python -m gap_tributario --periodo 2022
 uv run python -m gap_tributario --periodo 2022-T1 --formato pdf excel
-uv run python -m gap_tributario --periodo 2024 --vab-manual 140000
+uv run python -m gap_tributario --periodo 2026-T1 --vab-manual <VAB_do_trimestre>
 uv run python -m gap_tributario --periodo 2022 --imp-incluir-ni  # sensibilidade NI
 
 # Regerar o snapshot de importações (dentro da rede da SEFAZ):
