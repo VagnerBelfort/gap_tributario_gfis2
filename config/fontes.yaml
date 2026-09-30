@@ -7,16 +7,16 @@
 # vigente e é o ponto de extensão para torná-la configurável sem mexer no código.
 
 vab:
+  # --vab-manual, quando informado, vence a cascata inteira (override do
+  # operador) e é o VAB do período pedido: trimestral num trimestre.
   # IMESC: Relatório PIB Trimestral do MA, Tabela 15 (valores correntes).
   # Cobertura 2021-2025. VAB direto (sem fator PIB×0,8932), trimestral nativo.
-  # Anos <2021 caem para o IBGE SIDRA.
+  # Anos <2021 caem para o IBGE SIDRA. 2026 não tem fonte: o IMESC arquivou o
+  # site em 04/07/2026 por vedação eleitoral.
   cascata:
+    - manual         # --vab-manual (override)
     - imesc          # ImescPibExtractor (fonte nº1)
-    - ibge_sidra     # IBGEExtractor (fallback, anos <2021)
-    - ipeadata       # (planejado)
-    - bcb_focus      # (planejado)
-    - autoarima      # (planejado)
-    - manual         # --vab-manual
+    - ibge_sidra     # IBGEExtractor (fallback, anos <2021; trimestre = ano/4)
 
 importacoes:
   # Siscomex: única fonte com o domicílio fiscal do importador

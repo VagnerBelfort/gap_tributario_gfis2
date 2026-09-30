@@ -33,11 +33,11 @@ CLI Parse → Config → Extract → Validate → Calculate → Report → Outpu
 Entrypoint: `python -m gap_tributario --periodo YYYY[-TN]`
 
 Código em `src/gap_tributario/`:
-- `extractors/` — uma classe por fonte, contrato `FonteExtractor` Protocol
+- `extractors/` — uma classe por fonte; fonte indisponível levanta
+  `ExtractionError` (`extractors/base.py`), e a cascata cai para a próxima
 - `engine/vrr.py` — motor VRR (não mutar fórmula)
-- `engine/seasonality.py` — rateio sazonal trimestral
 - `validators/schemas.py` — Pandera, fail-fast
-- `report/` — PDF (typst-py) e Excel (xlsxwriter) com proveniência
+- `report/` — PDF (reportlab) e Excel (xlsxwriter) com proveniência
 - `cli.py` — orquestra os 7 estágios
 
 ## Fontes de dados — cascatas
@@ -47,13 +47,14 @@ A primeira fonte que responde com sucesso vence; falhas levam à próxima.
 
 | Variável | Ordem da cascata |
 |---|---|
-| VAB | IBGE SIDRA → IPEADATA → BCB Focus → AutoARIMA forecast → `--vab-manual` |
+| VAB | `--vab-manual` (override) → IMESC PIB Trimestral → IBGE SIDRA |
 | Importações | Snapshot Siscomex → MDIC ComEx → `--imp-manual` |
 | Exportações | MDIC ComEx direto → `--exp-manual` |
 | ICMS Arrecadado | GFIS2 Parquet → SIGDEF (CONFAZ) |
 | PTAX | BCB API Olinda (fonte única) |
 
-Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
+A ordem vive em `cli.py`; `config/fontes.yaml` só a documenta e precisa
+acompanhar qualquer mudança nela. Cada resultado carrega um objeto
 `Proveniencia` que vira linha no relatório final.
 
 ## Pontos de atenção (dívida e pitfalls)
@@ -174,17 +175,26 @@ Ordem configurável em `config/fontes.yaml`. Cada resultado carrega um objeto
 - **Anos inválidos na origem**: há DIs com ano de desembaraço digitado errado
   (18, 202, 203...), ~R$ 0,04 bi. O job descarta com contagem explícita.
 
-- **IBGE SIDRA tem lag de ~2 anos**: Contas Regionais (tabela 5938) publica
-  o ano N no final do ano N+2. Para 2024-2026 usar a cascata de fallback.
+- **VAB vem do IMESC, trimestral nativo**: `extractors/imesc_pib.py` lê
+  `src/gap_tributario/data/imesc_pib_trimestral_ma.csv`, transcrito da
+  Tabela 15 (valores correntes) de
+  `docs/Relatorio-Especializado-do-PIB-Trimestral-1.pdf` (edição do 4º
+  tri/2025). Cobre 2021 T1 a 2025 T4; o trimestre usa o valor direto, o ano
+  soma os quatro. A soma de 2022 dá 124.859, o mesmo VAB do IBGE usado nos
+  goldens.
 
-- **Fator PIB→VAB**: SIDRA 5938 variável 37 retorna PIB, não VAB. Aplicamos
-  `VAB = PIB × 0.8932` (base: Contas Regionais IBGE 2022). Esse fator é
-  aproximação — validar contra série VAB direta quando disponível.
+- **2026 ainda não tem VAB**: o IMESC publicou o 1º tri/2026 em 02/07/2026 e
+  arquivou o site em 04/07/2026 por vedação eleitoral (Lei 9.504/1997); os
+  arquivos em `wp-content/uploads` redirecionam para a home e não há cópia
+  em arquivos da web. Hoje `--periodo 2026-TN` termina em erro, a menos que
+  se passe `--vab-manual`. Esse valor é o VAB **do período pedido**, então
+  num trimestre é o VAB trimestral.
 
-- **Sazonalidade trimestral**: O VAB é anual. Para períodos trimestrais
-  `engine/seasonality.py` rateia pelo peso do ICMS do próprio ano:
-  `VAB_Tn = VAB_anual × (ICMS_Tn / ICMS_anual)`. Premissa: VRR ≈ constante
-  intra-ano (aceitável OCDE para horizontes curtos).
+- **IBGE SIDRA é o fallback de anos anteriores a 2021**: Contas Regionais
+  (tabela 5938) publica o ano N no final do ano N+2. A variável 37 é PIB, não
+  VAB; aplicamos `VAB = PIB × 0.8932`, razão das Contas Regionais de 2022 (o
+  IMESC dá a mesma em 2022, mas ~0,85 em 2024-2025, quando os impostos passam
+  a pesar mais). No trimestre, o extrator divide o ano por 4.
 
 - **Alíquota mudou em 2023**: Lei 11.867/2022 elevou de 18% para 20%.
   Configurado em `config/aliquotas.yaml`. Mudanças mid-year não são
@@ -253,16 +263,16 @@ importações não os quebra). O golden da fonte fica em
 
 ## Dependências-chave
 
-Python 3.8+, `uv` para gestão. Core: `polars`, `pandera`, `httpx`,
-`sidrapy`, `python-bcb`, `ipeadatapy`, `basedosdados`, `statsforecast`,
-`pointblank`, `typst-py`, `reportlab` (legado, em migração), `xlsxwriter`,
-`pyyaml`. O pacote não fala com Oracle: o acesso ao `APL_SISCOMEX` vive em
+Python 3.8+, `uv` para gestão; a lista está no `pyproject.toml`. O pacote não
+fala com Oracle: o acesso ao `APL_SISCOMEX` vive em
 `scripts/snapshot_siscomex.py`, que roda com `spark3-submit` no cluster da
 SEFAZ e não é dependência do CLI.
 
 ## Referências
 
 - OCDE VRR methodology: Consumption Tax Trends 2020, Chapter 2
+- IMESC PIB Trimestral do Maranhão: https://imesc.ma.gov.br/ (arquivado
+  durante a vedação eleitoral de 2026)
 - IBGE Contas Regionais, Tabela 5938
 - MDIC ComexStat: https://balanca.economia.gov.br/
 - BCB PTAX: https://olinda.bcb.gov.br/olinda/servico/PTAX
