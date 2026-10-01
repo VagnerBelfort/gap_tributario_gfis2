@@ -709,7 +709,7 @@ asserção sobre o mesmo código.
 | 6 | Filtro NCM exclui cap.27/31 **inteiros** — remove importação legítima de combustível do MA. | Média | Paliativo consciente. Some com o item 5. |
 | 7 | Nomes dos bancos são **inferência**. | Baixa | Confirmar com a equipe de dados. |
 | 8 | Quem opera a **landing zone**? Não há dono definido. | Média | Definir: script no edge node? Airflow com proxy? |
-| 9 | `CLAUDE.md` descreve `engine/seasonality.py`, que **não existe** — o IMESC deu VAB trimestral nativo e tornou o rateio desnecessário. | Baixa | Atualizar o `CLAUDE.md`. |
+| 9 | ~~`CLAUDE.md` descreve `engine/seasonality.py`, que **não existe**~~ — **resolvido** (PR #5): o `CLAUDE.md` descreve a cascata real de VAB. | Baixa | — |
 | 10 | `flg_estimado` para 2024+ depende do fallback de VAB; a regra de marcação precisa ser explícita. | Baixa | Definir: `flg_estimado = (fonte_vab != 'imesc' AND ano >= 2024)`? |
 | 11 | **O `gap_engine.zip` NÃO roda no driver como está.** `models.py` usa `@dataclass` (3.7+) e `from __future__ import annotations` (3.7+); o driver é **Python 3.6.8** após o `conda deactivate`. Isso bloqueia a decisão central do §1 (motor aprovado como fonte única). | **Alta** | Apontar `PYSPARK_PYTHON`/`PYSPARK_DRIVER_PYTHON` para `/miniconda3/bin/python3.8`, que já existe na máquina. **Preferir isso** a rebaixar o motor para 3.6 — o `vrr.py` está sob trava metodológica e mexer nele exige aprovação. Validar que o Spark 3.5.4 do Cloudera aceita o 3.8. |
 | 12 | O §8 desenha a DAG com `BashOperator` local; a casa usa `SSHOperator` + `ExternalTaskSensor` + queries em `Variable.get(...)`. | Média | Reescrever o §8 no padrão de `3-gold/dag/dag_gold_arrecadacao.py` antes de subir a DAG. |

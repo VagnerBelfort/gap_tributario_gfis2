@@ -3,20 +3,18 @@
 # Cada variável da fórmula VRR tem uma cascata de fontes em ordem de prioridade.
 # A primeira fonte que responde com sucesso vence; ExtractionError leva à próxima.
 #
-# NOTA: hoje a ordem é orquestrada em cli.py. Este arquivo documenta a ordem
-# vigente e é o ponto de extensão para torná-la configurável sem mexer no código.
+# NOTA: a ordem é orquestrada em cli.py e este arquivo ainda não é lido pelo
+# código. Ele registra a ordem vigente e o porquê de cada fonte; muda junto com
+# o cli.py. Os overrides --vab-manual, --imp-manual e --exp-manual vencem a
+# cascata da variável e ficam fora das listas.
 
 vab:
   # IMESC: Relatório PIB Trimestral do MA, Tabela 15 (valores correntes).
   # Cobertura 2021-2025. VAB direto (sem fator PIB×0,8932), trimestral nativo.
-  # Anos <2021 caem para o IBGE SIDRA.
+  # O que o IMESC não cobre cai para o IBGE SIDRA (na prática, 2020).
   cascata:
     - imesc          # ImescPibExtractor (fonte nº1)
-    - ibge_sidra     # IBGEExtractor (fallback, anos <2021)
-    - ipeadata       # (planejado)
-    - bcb_focus      # (planejado)
-    - autoarima      # (planejado)
-    - manual         # --vab-manual
+    - ibge_sidra     # IBGEExtractor (fallback; trimestre = ano/4)
 
 importacoes:
   # Siscomex: única fonte com o domicílio fiscal do importador
@@ -24,18 +22,17 @@ importacoes:
   # trânsito por Itaqui. Lido do snapshot agregado gerado no cluster da SEFAZ
   # por scripts/snapshot_siscomex.py — o Oracle não é alcançável de fora.
   # Cobertura confiável de 2013 em diante (2009-2012 têm poucas DIs).
-  # O MDIC entra como fallback, mas o SG_UF_NCM dele é local de desembaraço,
-  # então superestima o MA. NÃO reativar o filtro NCM cap.27/31: medimos que
-  # 90% do cap.27 e 70% do cap.31 são de importadores do MA.
+  # O MDIC entra como fallback: o SG_UF_NCM dele não separa domicílio fiscal
+  # de local de desembaraço (medido 2019-2025, fica abaixo do Siscomex).
+  # NÃO reativar o filtro NCM cap.27/31: medimos que 90% do cap.27 e 70% do
+  # cap.31 são de importadores do MA.
   cascata:
     - siscomex_snapshot  # SiscomexSnapshotExtractor (fonte nº1)
     - mdic_comex         # ComexExtractor (fallback, anos <2013)
-    - manual             # --imp-manual
 
 exportacoes:
   cascata:
     - mdic_comex
-    - manual          # --exp-manual
 
 icms_arrecadado:
   # GFIS2 é a fonte nº 1: é o sistema da própria SEFAZ-MA e o número que bate
