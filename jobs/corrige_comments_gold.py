@@ -23,7 +23,7 @@ COMENTARIOS = [
      "Importações CIF por domicílio fiscal do importador (Siscomex: DI + DUIMP) — R$ milhões"),
     ("g_gap_resultado", "fonte_imp", "siscomex | mdic_bruto | manual"),
     ("g_gap_resultado", "flg_estimado", "VAB estimado — reservado; hoje sempre false"),
-    ("g_gap_resultado", "versao_engine", "gap_tributario.__version__ do CLI que calculou"),
+    ("g_gap_resultado", "versao_engine", "gap_tributario-cli-<data do cálculo>"),
     ("g_gap_resultado", "id_execucao", "CARGA_CLI_<data do cálculo> — CSVs do --exportar-ouro"),
 ]
 

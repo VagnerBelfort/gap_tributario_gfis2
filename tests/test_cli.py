@@ -1040,3 +1040,58 @@ def test_exportar_ouro_rejeita_argumentos_invalidos(config_path, tmp_path, extra
         ["gap-tributario", "--exportar-ouro", str(tmp_path), "--config", config_path, *extra],
     ):
         assert run() == 4
+
+
+def _exportar_proveniencia(argv_extra, config_path, tmp_path, imesc_falha=False):
+    """Roda o batch de um ano e devolve a proveniência por variável."""
+    import csv
+
+    from gap_tributario.extractors.base import ExtractionError
+
+    destino = tmp_path / "ouro"
+    with _mock_extractors(), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=_IMP,
+    ), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract_por_fonte",
+        return_value={"DI": _IMP},
+    ), patch(
+        "gap_tributario.extractors.imesc_pib.ImescPibExtractor.extract",
+        side_effect=ExtractionError("IMESC não cobre o ano") if imesc_falha else None,
+        return_value=_VAB,
+    ), patch(
+        "sys.argv",
+        ["gap-tributario", "--exportar-ouro", str(destino), "--anos", "2022-2022",
+         "--config", config_path, *argv_extra],
+    ):
+        assert run() == 0
+    with (destino / "g_gap_proveniencia.csv").open(encoding="utf-8") as f:
+        return {linha["variavel"]: linha for linha in csv.DictReader(f)}
+
+
+def test_exportar_ouro_grava_a_posicao_da_fonte_que_venceu_a_cascata(config_path, tmp_path):
+    """IMESC fora do ar: o VAB vem do SIDRA, segunda opção da cascata."""
+    prov = _exportar_proveniencia([], config_path, tmp_path, imesc_falha=True)
+
+    assert (prov["VAB"]["fonte_vencedora"], prov["VAB"]["ordem_cascata"]) == ("ibge_sidra", "2")
+    assert (prov["Importações"]["fonte_vencedora"], prov["Importações"]["ordem_cascata"]) == (
+        "siscomex", "1",
+    )
+
+
+def test_icms_carrega_a_data_de_corte_do_export_da_arrecadacao(tmp_path):
+    """O diretório g_arrecadacao_agregada_AAAAMMDD diz quando a g_arrecadacao foi lida."""
+    config = tmp_path / "aliquotas.yaml"
+    config.write_text(
+        'aliquotas:\n'
+        '  - {ano_inicio: 2010, ano_fim: null, aliquota: 0.18, legislacao: "Lei"}\n'
+        'fontes:\n'
+        '  parquet_base_path: "./bases/g_arrecadacao_agregada_20260923/"\n'
+        '  mdic_base_path: "./mdic_comex/dados/"\n'
+        '  siscomex_snapshot_path: "./tests/fixtures/_snapshot_ausente.csv"\n',
+        encoding="utf-8",
+    )
+
+    prov = _exportar_proveniencia([], str(config), tmp_path)
+
+    assert prov["ICMS Arrecadado"]["dt_extracao"] == "2026-09-23"

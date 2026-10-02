@@ -133,11 +133,14 @@ _SQL_DUIMP = """
       FROM DUIMP
 """
 
-# Bronze da CARGA: a chegada de cada carga, com o IDDUIMP da versão.
+# Bronze da CARGA: a chegada de cada carga ligada a uma DUIMP, com o IDDUIMP
+# da versão. Carga sem DUIMP não entra em importação nenhuma e ficaria no lake
+# sem uso.
 _SQL_CARGA = """
     SELECT IDDUIMP     AS id_duimp,
            DATACHEGADA AS chegada
       FROM APL_PUCOMEX.CARGA@CENTRAL
+     WHERE IDDUIMP IS NOT NULL
 """
 
 # IDUFIMPORTADOR → sigla: índice da UF em ordem alfabética do nome.

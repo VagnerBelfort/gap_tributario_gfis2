@@ -54,6 +54,7 @@ def _calculo(
     aliq: str,
     renuncia: RenunciaFiscal | None = None,
     fontes: dict | None = None,
+    ordem_cascata: dict | None = None,
     importacoes_por_fonte: dict | None = None,
 ) -> CalculoAnual:
     dados = DadosVRR(
@@ -81,6 +82,7 @@ def _calculo(
              if renuncia else []),
         fontes=fontes or {"vab": "imesc", "icms": "gfis2", "imp": "siscomex", "exp": "mdic",
                           "ptax": "bcb_olinda"},
+        ordem_cascata=ordem_cascata or {"vab": 1, "icms": 1, "imp": 1, "exp": 1, "ptax": 1},
         importacoes_por_fonte=importacoes_por_fonte or {"DI": Decimal(imp)},
         legislacao_aliquota="Lei Estadual vigente até 2022",
     )
@@ -95,7 +97,7 @@ def calculo_2022() -> CalculoAnual:
 def test_resultado_tem_as_colunas_do_ddl_de_producao_e_os_valores_do_golden(
     tmp_path: Path, calculo_2022: CalculoAnual
 ):
-    arquivos = exportar_ouro([calculo_2022], tmp_path, DT_CALCULO, versao_engine="0.1.0")
+    arquivos = exportar_ouro([calculo_2022], tmp_path, DT_CALCULO)
 
     caminho = arquivos["g_gap_resultado"]
     assert _cabecalho(caminho) == COLUNAS_RESULTADO
@@ -117,7 +119,7 @@ def test_resultado_tem_as_colunas_do_ddl_de_producao_e_os_valores_do_golden(
         "imesc", "gfis2", "siscomex", "mdic",
     )
     assert linha["dt_calculo"] == "2026-10-01 14:30:00"
-    assert linha["versao_engine"] == "0.1.0"
+    assert linha["versao_engine"] == "gap_tributario-cli-2026-10-01"
     assert linha["id_execucao"] == "CARGA_CLI_2026-10-01"
 
 
@@ -145,7 +147,7 @@ def test_decomposicao_usa_as_modalidades_reais_da_amf_e_omite_ano_sem_renuncia(t
     sem_amf = _calculo(2020, vab="95497.34", exp="17387.76", imp="11504.37",
                        icms="8195.78", aliq="0.18")
 
-    arquivos = exportar_ouro([sem_amf, com_amf], tmp_path, DT_CALCULO, versao_engine="0.1.0")
+    arquivos = exportar_ouro([sem_amf, com_amf], tmp_path, DT_CALCULO)
 
     caminho = arquivos["g_gap_decomposicao"]
     assert _cabecalho(caminho) == COLUNAS_DECOMPOSICAO
@@ -187,7 +189,7 @@ def test_proveniencia_traz_as_sete_variaveis_e_separa_di_de_duimp(tmp_path: Path
         importacoes_por_fonte={"DI": Decimal("27208.44"), "DUIMP": Decimal("619.97")},
     )
 
-    arquivos = exportar_ouro([calculo_2025], tmp_path, DT_CALCULO, versao_engine="0.1.0")
+    arquivos = exportar_ouro([calculo_2025], tmp_path, DT_CALCULO)
 
     caminho = arquivos["g_gap_proveniencia"]
     assert _cabecalho(caminho) == COLUNAS_PROVENIENCIA
@@ -206,14 +208,15 @@ def test_proveniencia_traz_as_sete_variaveis_e_separa_di_de_duimp(tmp_path: Path
     assert linhas["VAB"]["dt_extracao"] == "2026-10-01"
 
 
-def test_ano_sem_amf_grava_renuncia_nula_e_vab_do_sidra_em_segundo_na_cascata(tmp_path: Path):
+def test_ano_sem_amf_grava_renuncia_nula_e_a_posicao_que_o_cli_deu_na_cascata(tmp_path: Path):
     calculo_2020 = _calculo(
         2020, vab="95497.34", exp="17387.76", imp="11504.37", icms="8195.78", aliq="0.18",
         fontes={"vab": "ibge_sidra", "icms": "gfis2", "imp": "siscomex", "exp": "mdic",
                 "ptax": "bcb_olinda"},
+        ordem_cascata={"vab": 2, "icms": 1, "imp": 1, "exp": 1, "ptax": 1},
     )
 
-    arquivos = exportar_ouro([calculo_2020], tmp_path, DT_CALCULO, versao_engine="0.1.0")
+    arquivos = exportar_ouro([calculo_2020], tmp_path, DT_CALCULO)
 
     linhas = {linha["variavel"]: linha for linha in _ler(arquivos["g_gap_proveniencia"])}
     renuncia = linhas["Renúncia fiscal (ICMS)"]
@@ -222,3 +225,29 @@ def test_ano_sem_amf_grava_renuncia_nula_e_vab_do_sidra_em_segundo_na_cascata(tm
     assert (linhas["VAB"]["fonte_vencedora"], linhas["VAB"]["ordem_cascata"]) == (
         "ibge_sidra", "2",
     )
+
+
+def test_origem_e_fonte_repetem_os_textos_da_carga_de_agosto(tmp_path: Path):
+    """O painel exibe esses textos; a carga de 31/08/2026 é a referência."""
+    calculo = _calculo(2022, vab="124859", exp="29754", imp="21924", icms="10917",
+                       aliq="0.18", renuncia=RENUNCIA_2022)
+
+    arquivos = exportar_ouro([calculo], tmp_path, DT_CALCULO)
+
+    textos = {
+        linha["variavel"]: (linha["origem"], linha["fonte"])
+        for linha in _ler(arquivos["g_gap_proveniencia"])
+    }
+    assert textos == {
+        "VAB": ("IMESC / IBGE SIDRA 5938",
+                "Relatório PIB Trimestral (IMESC); fallback IBGE Contas Regionais"),
+        "ICMS Arrecadado": ("GFIS2 (gfis2_ouro.g_arrecadacao)",
+                            "Soma de todas as parcelas de ICMS (normal, importação, ST saída, "
+                            "ST entrada, dívida ativa, TVI, FCP, FDI, IDH, fruição)"),
+        "Exportações": ("MDIC ComexStat", "EXP_2022.csv — FOB USD × PTAX"),
+        "Importações": ("Siscomex (APL_SISCOMEX / SEFAZ-MA)",
+                        "TDS_UF_IMPORTADOR — domicílio fiscal, valor aduaneiro (CIF)"),
+        "PTAX média": ("BCB API Olinda", "Média de cotacaoVenda dos dias úteis do período"),
+        "Alíquota modal": ("config/aliquotas.yaml", "Lei Estadual vigente até 2022"),
+        "Renúncia fiscal (ICMS)": ("AMF Tabela 7 (LDO/MA)", "LDO-2022"),
+    }

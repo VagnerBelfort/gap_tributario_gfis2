@@ -36,14 +36,22 @@ COLUNAS_PROVENIENCIA = [
     "id_execucao",
 ]
 
-# Posição de cada fonte na sua cascata (1 = primeira opção); override manual
-# fica fora da cascata.
-_ORDEM_CASCATA = {
-    "imesc": 1, "ibge_sidra": 2,
-    "gfis2": 1, "sigdef": 2,
-    "siscomex": 1, "mdic_bruto": 2,
-    "mdic": 1, "bcb_olinda": 1, "config": 1, "amf": 1,
-    "manual": 0,
+# (origem, fonte) gravados em 31/08/2026, pela fonte que venceu a cascata. O
+# painel exibe esses textos. Fonte vencedora fora desta lista (fallback que
+# agosto não usou) leva o texto do próprio CLI, para não atribuir o dado à
+# fonte errada.
+_TEXTOS_AGOSTO = {
+    "imesc": ("IMESC / IBGE SIDRA 5938",
+              "Relatório PIB Trimestral (IMESC); fallback IBGE Contas Regionais"),
+    "ibge_sidra": ("IMESC / IBGE SIDRA 5938",
+                   "Relatório PIB Trimestral (IMESC); fallback IBGE Contas Regionais"),
+    "gfis2": ("GFIS2 (gfis2_ouro.g_arrecadacao)",
+              "Soma de todas as parcelas de ICMS (normal, importação, ST saída, "
+              "ST entrada, dívida ativa, TVI, FCP, FDI, IDH, fruição)"),
+    "mdic": ("MDIC ComexStat", "EXP_{ano}.csv — FOB USD × PTAX"),
+    "siscomex": ("Siscomex (APL_SISCOMEX / SEFAZ-MA)",
+                 "TDS_UF_IMPORTADOR — domicílio fiscal, valor aduaneiro (CIF)"),
+    "bcb_olinda": ("BCB API Olinda", "Média de cotacaoVenda dos dias úteis do período"),
 }
 
 # Modalidade da AMF Tabela 7 → componente gravado na ouro.
@@ -60,14 +68,16 @@ class CalculoAnual:
 
     `fontes` traz a chave da fonte que venceu cada cascata ("imesc",
     "ibge_sidra", "gfis2", "sigdef", "siscomex", "mdic_bruto", "mdic",
-    "bcb_olinda", "manual"). `importacoes_por_fonte` separa DI e DUIMP, em
-    R$ milhões.
+    "bcb_olinda", "manual") e `ordem_cascata` a posição dela (1 = primeira
+    opção, 0 = override manual), as duas decididas pelo CLI.
+    `importacoes_por_fonte` separa DI e DUIMP, em R$ milhões.
     """
 
     resultado: ResultadoGap
     decomposicao: Optional[DecomposicaoGap]
     proveniencias: List[Proveniencia]
     fontes: Dict[str, str]
+    ordem_cascata: Dict[str, int] = field(default_factory=dict)
     importacoes_por_fonte: Dict[str, Decimal] = field(default_factory=dict)
     legislacao_aliquota: str = ""
 
@@ -124,13 +134,17 @@ def _milhoes(valor: Decimal) -> str:
 
 def _linhas_proveniencia(c: CalculoAnual, dt_calculo: str, id_execucao: str) -> list:
     r = c.resultado
+    ano = r.periodo.ano
     da_cli = {p.variavel: p for p in c.proveniencias}
-    data = da_cli["VAB"].data_extracao
+    hoje = dt_calculo[:10]
 
     def da_cascata(variavel_ouro, variavel_cli, valor, chave, prefixo=""):
         p = da_cli[variavel_cli]
+        vencedora = c.fontes[chave]
+        origem, fonte = _TEXTOS_AGOSTO.get(vencedora, (p.origem, p.fonte))
         obs = " ".join(t for t in (prefixo, p.observacoes) if t)
-        return (variavel_ouro, valor, p.origem, p.fonte, p.data_extracao, obs, c.fontes[chave])
+        return (variavel_ouro, valor, origem, fonte.format(ano=ano), p.data_extracao, obs,
+                vencedora, c.ordem_cascata[chave])
 
     composicao = " + ".join(
         f"{fonte} R$ {_milhoes(valor)} mi" for fonte, valor in c.importacoes_por_fonte.items()
@@ -143,22 +157,22 @@ def _linhas_proveniencia(c: CalculoAnual, dt_calculo: str, id_execucao: str) -> 
                    prefixo=f"{composicao}." if composicao else ""),
         da_cascata("PTAX média", "Câmbio (PTAX)", r.ptax_media, "ptax"),
         ("Alíquota modal", r.aliquota_padrao, "config/aliquotas.yaml",
-         c.legislacao_aliquota, data, "", "config"),
+         c.legislacao_aliquota, hoje, "", "config", 1),
     ]
     if c.decomposicao is not None:
+        renuncia = c.decomposicao.renuncia
         p = da_cli["Renúncia Fiscal (ICMS)"]
-        variaveis.append(("Renúncia fiscal (ICMS)", c.decomposicao.renuncia.total, p.origem,
-                          p.fonte, p.data_extracao, p.observacoes, "amf"))
+        variaveis.append(("Renúncia fiscal (ICMS)", renuncia.total, "AMF Tabela 7 (LDO/MA)",
+                          renuncia.vintage, p.data_extracao, p.observacoes, "amf", 1))
     else:
         variaveis.append(("Renúncia fiscal (ICMS)", None, "AMF Tabela 7 (LDO/MA)",
-                          f"Sem cobertura para {r.periodo.ano}", data,
-                          "Cobertura AMF inicia em 2022", None))
+                          f"Sem cobertura para {ano}", hoje,
+                          "Cobertura AMF inicia em 2022", None, 1))
 
     return [
-        [r.periodo.ano, "A", 0, variavel, "" if valor is None else _q(valor, 4),
-         origem, fonte, dt_extracao, obs, vencedora or "",
-         _ORDEM_CASCATA[vencedora] if vencedora else 1, dt_calculo, id_execucao]
-        for variavel, valor, origem, fonte, dt_extracao, obs, vencedora in variaveis
+        [ano, "A", 0, variavel, "" if valor is None else _q(valor, 4),
+         origem, fonte, dt_extracao, obs, vencedora or "", ordem, dt_calculo, id_execucao]
+        for variavel, valor, origem, fonte, dt_extracao, obs, vencedora, ordem in variaveis
     ]
 
 
@@ -174,7 +188,6 @@ def exportar_ouro(
     calculos: List[CalculoAnual],
     destino: Path,
     dt_calculo: datetime,
-    versao_engine: str,
 ) -> Dict[str, Path]:
     """Grava os CSVs da ouro em `destino`, um por tabela.
 
@@ -184,6 +197,8 @@ def exportar_ouro(
     destino.mkdir(parents=True, exist_ok=True)
     ts = dt_calculo.strftime("%Y-%m-%d %H:%M:%S")
     id_execucao = f"CARGA_CLI_{dt_calculo.date().isoformat()}"
+    # Mesmo formato da carga de 31/08/2026.
+    versao_engine = f"gap_tributario-cli-{dt_calculo.date().isoformat()}"
 
     return {
         "g_gap_resultado": _gravar(

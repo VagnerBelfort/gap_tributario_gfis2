@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from typing import Optional
 
 FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
@@ -140,6 +141,34 @@ Exemplos:
     )
 
     return parser
+
+
+# Ordem de cada cascata, da primeira opção à última (registrada também em
+# config/fontes.yaml). A posição da fonte vencedora vai para a ouro em
+# `ordem_cascata`; override manual fica fora da cascata (posição 0).
+_CASCATAS = {
+    "ptax": ("bcb_olinda",),
+    "vab": ("imesc", "ibge_sidra"),
+    "icms": ("gfis2", "sigdef"),
+    "exp": ("mdic",),
+    "imp": ("siscomex", "mdic_bruto"),
+}
+
+
+def _ordem_cascata(fontes: dict) -> dict:
+    return {
+        variavel: 0 if chave == "manual" else _CASCATAS[variavel].index(chave) + 1
+        for variavel, chave in fontes.items()
+    }
+
+
+def _data_corte(diretorio) -> Optional[str]:
+    """Data do export no nome do diretório (`..._AAAAMMDD`), em ISO; None sem data."""
+    import re
+    from pathlib import Path
+
+    achado = re.search(r"_(\d{4})(\d{2})(\d{2})$", Path(diretorio).name)
+    return "-".join(achado.groups()) if achado else None
 
 
 class _FalhaPipeline(Exception):
@@ -285,6 +314,8 @@ def _calcular_periodo(periodo, args, config, data_extracao: str):
         try:
             icms_arrecadado = ArrecadacaoExtractor(str(config.parquet_base_path)).extract(periodo)
             fontes["icms"] = "gfis2"
+            # A g_arrecadacao muda todo dia: a data que vale é a do export.
+            corte_icms = _data_corte(config.parquet_base_path) or data_extracao
             logger.info("ICMS arrecadado %s (GFIS2): R$ %s milhões", periodo.label, icms_arrecadado)
             proveniencias.append(
                 Proveniencia(
@@ -295,7 +326,7 @@ def _calcular_periodo(periodo, args, config, data_extracao: str):
                         "(normal, importação, ST saída, ST entrada, dívida ativa, "
                         "TVI, FCP, FDI, IDH, fruição de benefício fiscal)"
                     ),
-                    data_extracao=data_extracao,
+                    data_extracao=corte_icms,
                     observacoes=(
                         "Converge com o SIGDEF/CONFAZ dentro de ~1% em 2020-2023. "
                         "FCP, FDI e IDH são adicionais de alíquota vinculados a fundos "
@@ -547,6 +578,7 @@ def _calcular_periodo(periodo, args, config, data_extracao: str):
         decomposicao=decomposicao,
         proveniencias=proveniencias,
         fontes=fontes,
+        ordem_cascata=_ordem_cascata(fontes),
         importacoes_por_fonte=composicao_importacoes,
         legislacao_aliquota=legislacao,
     )
@@ -567,7 +599,6 @@ def _exportar_ouro(args) -> int:
     from datetime import date, datetime
     from pathlib import Path
 
-    from gap_tributario import __version__
     from gap_tributario.config import load_config
     from gap_tributario.models import PeriodoCalculo
     from gap_tributario.report.ouro import exportar_ouro
@@ -606,7 +637,7 @@ def _exportar_ouro(args) -> int:
             return falha.codigo
         calculos.append(calculo)
 
-    arquivos = exportar_ouro(calculos, Path(args.exportar_ouro), datetime.now(), __version__)
+    arquivos = exportar_ouro(calculos, Path(args.exportar_ouro), datetime.now())
     for arquivo in arquivos.values():
         print(arquivo)
     return 0

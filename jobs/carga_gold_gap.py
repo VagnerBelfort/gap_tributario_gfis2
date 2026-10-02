@@ -208,11 +208,18 @@ def promover(spark, origem):
         destino = f"{PRODUCAO_OURO}.{tabela}"
         print(f"  {destino}: snapshot_id {_snapshot_atual(spark, destino)}")
 
-    destinos = [(t, PRODUCAO_OURO) for t in SCHEMA_OURO] + list(DESTINO_BRONZE_PRATA.items())
-    for tabela, database in destinos:
+    # Na ouro, só INSERT OVERWRITE: as tabelas existem e foram conferidas
+    # acima, e nenhum DDL roda ali. Bronze e prata podem nascer nesta promoção.
+    for tabela in SCHEMA_OURO:
+        destino = f"{PRODUCAO_OURO}.{tabela}"
+        spark.sql(f"INSERT OVERWRITE TABLE {destino} SELECT * FROM {origem}.{tabela}")
+        print(f"[PROMOVIDO] {origem}.{tabela} → {destino}: {spark.table(destino).count()} linhas")
+    for tabela, database in DESTINO_BRONZE_PRATA.items():
         destino = f"{database}.{tabela}"
         _gravar_tabela(spark, f"{origem}.{tabela}", destino)
         print(f"[PROMOVIDO] {origem}.{tabela} → {destino}: {spark.table(destino).count()} linhas")
+
+    destinos = [(t, PRODUCAO_OURO) for t in SCHEMA_OURO] + list(DESTINO_BRONZE_PRATA.items())
 
     print("\nRode no Impala para enxergar a carga:")
     for tabela, database in destinos:
