@@ -19,19 +19,17 @@ impala-shell -i sefazbige02.sefaz.ma.gov.br -d default -k --ssl \
 
 | Tabela | Linhas | Serve |
 |---|---|---|
-| `gfis2_ouro.g_gap_resultado` | 38 | KPIs, evolução, waterfall, gráfico trimestral, tabela de anos, tabela trimestral |
+| `gfis2_ouro.g_gap_resultado` | 6 | KPIs, evolução, waterfall, gráfico trimestral, tabela de anos, tabela trimestral |
 | `gfis2_ouro.g_gap_decomposicao` | 24 | Policy × Compliance + modalidades de renúncia |
-| `gfis2_ouro.g_gap_proveniencia` | 266 | Tabela "Componentes da fórmula & proveniência" |
+| `gfis2_ouro.g_gap_proveniencia` | 42 | Tabela "Componentes da fórmula & proveniência" |
 
 `gfis2_dev` mantém as mesmas 3 tabelas para uso em desenvolvimento/testes.
 
 **Queries prontas: `docs/pipeline-impala-medallion.md` §4.**
 
-Para recriar/repopular (idempotente — rodar 2x dá o mesmo resultado):
-
-```bash
-cd /gfis2/pipeline && ./gap_tributario/run_seed_gold_gap.sh --database gfis2_ouro
-```
+Hoje só há linhas anuais, de 2020 a 2025. Para repopular, siga
+`docs/runbook-carga-impala.md`: o CLI calcula, a carga passa pelo `gfis2_dev` e
+chega à `gfis2_ouro` por cópia.
 
 Se as tabelas sumirem do Impala após uma recriação, invalide **tabela a tabela**
 (`INVALIDATE METADATA` recebe tabela, não database):
@@ -44,25 +42,24 @@ INVALIDATE METADATA gfis2_ouro.g_gap_proveniencia;
 
 ---
 
-## ⚠️ Os valores são fictícios. O schema não.
+## Os valores são reais. O schema não muda.
 
-Os números vêm do protótipo, não da SEFAZ. Construa contra a **forma**; os valores
-serão substituídos pelo pipeline real sem mudar uma linha do seu código.
+Os números são a saída do CLI (`python -m gap_tributario --exportar-ouro`), com
+importações do Siscomex (DI + DUIMP) e ICMS do GFIS2. Cada carga marca as linhas
+com `id_execucao = 'CARGA_CLI_<data do cálculo>'`; a de 31/08/2026 era
+`CARGA_MANUAL_2026-08-31`.
 
-Toda linha semeada tem `id_execucao = 'SEED_MOCK_PROTOTIPO'` — é como você distingue
-mock de dado real. Divergências já conhecidas: ICMS 2022 (10.278 no mock × 10.917 no
-real) e importação 2022 (38.786 sem filtro × 21.924 com filtro NCM). **Não trate
-nenhum desses números como oficial, nem em screenshot de demo.**
-
-Quando o pipeline real entrar em produção, ele sobrescreve `gfis2_ouro` com os
-valores calculados de verdade — sem mudar tabela, coluna ou grão. Mesmo DDL,
-mesmas colunas, mesmo grão. É só o nome do database.
+Uma carga nova muda só valores: tabela, colunas, tipos, grão e os valores
+categóricos (`fonte_*`, `variavel`, `componente`) ficam iguais. O job de carga
+aborta se algum deles divergir. A separação DI × DUIMP aparece no texto de
+`observacoes` da linha "Importações" da proveniência.
 
 ---
 
-## Casos de borda que o seed já exercita
+## Casos de borda
 
-Estes são os que quebram a tela se não forem tratados. Todos têm dado no seed:
+Estes são os que quebram a tela se não forem tratados. Os casos 2 e 3 não têm
+dado na carga atual, mas voltam quando 2026 entrar:
 
 **1. Ano sem decomposição (2019, 2020, 2021)**
 A AMF Tabela 7 só cobre de 2022 em diante. Esses anos **não têm linha** em
@@ -85,7 +82,7 @@ Independente do ano. A renúncia da AMF é anual por natureza. Em modo trimestra
 mostre: *"Decomposição indisponível para períodos trimestrais."*
 
 **5. `compliance_gap` pode ser negativo**
-Quando a renúncia estimada excede o gap total. Não acontece no seed atual, mas o
+Quando a renúncia estimada excede o gap total. Não acontece na carga atual, mas o
 campo `flg_compliance_negativo` existe e pode vir `TRUE` com dado real — a barra
 empilhada precisa aguentar isso sem estourar o layout.
 

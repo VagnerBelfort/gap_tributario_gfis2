@@ -37,7 +37,8 @@ Código em `src/gap_tributario/`:
   `ExtractionError` (`extractors/base.py`), e a cascata cai para a próxima
 - `engine/vrr.py` — motor VRR (não mutar fórmula)
 - `validators/schemas.py` — Pandera, fail-fast
-- `report/` — PDF (reportlab) e Excel (xlsxwriter) com proveniência
+- `report/` — PDF (reportlab) e Excel (xlsxwriter) com proveniência; `ouro.py`
+  gera os CSVs das tabelas do Impala (`--exportar-ouro`)
 - `cli.py` — orquestra os 7 estágios
 
 ## Fontes de dados — cascatas
@@ -217,6 +218,17 @@ Cada resultado carrega um objeto
   SIGDEF/CONFAZ fecha dentro de ~1% em 2020-2023 (era −10% a −15% antes).
   O SIGDEF é fallback da cascata, não fonte primária.
 
+- **Publicação no Impala — a ouro é contrato do painel**: o painel da SEFAZ lê
+  `gfis2_ouro.g_gap_*`. Colunas, tipos, ordem e valores categóricos (`fonte_*`,
+  `variavel`, `componente`) são os da carga de 31/08/2026 e ficam congelados; uma
+  carga nova muda só valores. O CLI calcula e exporta CSVs (`report/ouro.py`),
+  `jobs/carga_gold_gap.py` carrega no `gfis2_dev` com as travas de
+  `jobs/carga_gold_regras.py`, e a produção recebe por cópia do dev (`promover`),
+  nunca por carga direta. O `snapshot_siscomex.py` grava junto a bronze
+  (`b_siscomex_di`, `b_duimp`, `b_duimp_carga`, todas as versões) e a prata
+  (`s_gap_importacoes`). Os jobs rodam no Python 3.6.8 do driver. Passo a passo
+  em `docs/runbook-carga-impala.md`.
+
 ## Comandos principais
 
 ```bash
@@ -225,14 +237,12 @@ uv run python -m gap_tributario --periodo 2022
 uv run python -m gap_tributario --periodo 2022-T1 --formato pdf excel
 uv run python -m gap_tributario --periodo 2026-T1 --vab-manual <VAB_do_trimestre>
 uv run python -m gap_tributario --periodo 2022 --imp-incluir-ni  # sensibilidade NI
+uv run python -m gap_tributario --exportar-ouro output/ouro --anos 2020-2025  # CSVs do Impala
 
-# Regerar o snapshot de importações (dentro da rede da SEFAZ):
-#   scp scripts/snapshot_siscomex.py gfis2@Sefazbige01:/gfis2/pipeline/gap_tributario/
-#   spark3-submit --master yarn --deploy-mode client --jars /gfis2/jars/ojdbc8.jar \
-#     gap_tributario/snapshot_siscomex.py --saida .../siscomex_importacoes.csv
-#   scp gfis2@Sefazbige01:.../siscomex_importacoes.csv bases/
+# Regerar o snapshot e carregar no Impala (rede da SEFAZ): docs/runbook-carga-impala.md
 uv run pytest tests/ --cov=src/gap_tributario
 uv run ruff check src/
+uvx vermin --no-tips -t=3.6- jobs/ scripts/snapshot_siscomex.py  # driver do cluster é 3.6
 ```
 
 ## Workflow de desenvolvimento (obrigatório)
@@ -257,6 +267,8 @@ importações não os quebra). O golden da fonte fica em
 - Golden 2022 (VRR=0,518 ± 0,002) passa
 - Golden Siscomex: importações 2022 = R$ 39.704M (± R$ 1M) a partir de
   `bases/siscomex_importacoes.csv`; pula se o snapshot não estiver presente
+- Travas da carga do Impala (`tests/test_jobs/`) e cabeçalhos da ouro
+  (`tests/test_report/test_ouro.py`, transcritos do DDL de produção) passam
 
 ## Skills recomendadas (Claude Code)
 

@@ -5,6 +5,16 @@
 **Contexto:** a modelagem VRR foi aprovada. Este documento descreve como levá-la ao
 Cloudera (PySpark 3 / `spark-submit3` / Airflow) e quais tabelas da ouro a tela consome.
 
+> **O que existe de fato (out/2026).** O pipeline automático descrito daqui em
+> diante (`bronze_ingest`, `silver_componentes`, `gold_calcula`, DAG) não foi
+> construído. A carga real é a do `docs/runbook-carga-impala.md`: o CLI calcula
+> no laptop e exporta os CSVs da ouro; `jobs/carga_gold_gap.py` carrega no
+> `gfis2_dev` e promove por cópia. A bronze e a prata que existem são as do
+> `scripts/snapshot_siscomex.py` (`b_siscomex_di`, `b_duimp`, `b_duimp_carga`,
+> `s_gap_importacoes`), não as do §5 e §6. O DDL válido da ouro é o de
+> `jobs/carga_gold_regras.py::SCHEMA_OURO`; o do §3 ainda diz Parquet e TINYINT,
+> refutados no cluster.
+
 ---
 
 ## ✅ Verificado no cluster (2026-07-15, `Sefazbige01`)
