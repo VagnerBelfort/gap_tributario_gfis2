@@ -35,6 +35,7 @@ Exemplos:
   python -m gap_tributario --periodo 2022-T1 --formato pdf --saida ./relatorios/
   python -m gap_tributario --periodo 2023 --formato pdf excel
   python -m gap_tributario --periodo 2022 --imp-incluir-ni  # sensibilidade
+  python -m gap_tributario --exportar-ouro ./output/ouro --anos 2020-2025
         """,
     )
 
@@ -115,6 +116,23 @@ Exemplos:
     )
 
     parser.add_argument(
+        "--exportar-ouro",
+        type=str,
+        metavar="DIRETORIO",
+        help=(
+            "Modo batch: calcula cada ano de --anos e grava os CSVs das tabelas "
+            "gfis2_ouro.g_gap_* em DIRETORIO (carga do Impala)"
+        ),
+    )
+
+    parser.add_argument(
+        "--anos",
+        type=str,
+        metavar="INICIO-FIM",
+        help='Intervalo de anos do --exportar-ouro, ex.: "2020-2025"',
+    )
+
+    parser.add_argument(
         "--verbose",
         action="store_true",
         default=False,
@@ -124,36 +142,26 @@ Exemplos:
     return parser
 
 
-def run() -> int:
-    """Executa o pipeline completo de 7 estágios.
+class _FalhaPipeline(Exception):
+    """Falha de um estágio, com o código de saída que o CLI devolve."""
+
+    def __init__(self, codigo: int, mensagem: str) -> None:
+        super().__init__(mensagem)
+        self.codigo = codigo
+        self.mensagem = mensagem
+
+
+def _calcular_periodo(periodo, args, config, data_extracao: str):
+    """Estágios 3 a 5.5 (extração, validação, cálculo, decomposição) de um período.
 
     Returns:
-        Código de saída:
-            0  Sucesso
-            1  Erro de validação (Pandera / DadosVRR)
-            2  Erro de extração (fonte indisponível / OSError relatório)
-            3  Erro de configuração (YAML inválido / alíquota não encontrada)
-            4  Erro de argumento CLI (período inválido)
+        (CalculoAnual, DadosVRR, comparacao_fontes)
+
+    Raises:
+        _FalhaPipeline: com o código de saída do estágio que falhou.
     """
-    parser = create_parser()
-    args = parser.parse_args()
-
-    if args.periodo is None:
-        parser.print_help()
-        return 0
-
-    # === Estágio 6.6: Configurar Logging ===
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(level=log_level, format=FORMAT)
-
-    logger.info("=== Calculadora Gap Tributário ICMS-MA ===")
-
-    # Imports lazy para não impactar tempo de --help/--version
-    from datetime import date
     from decimal import Decimal
-    from pathlib import Path
 
-    from gap_tributario.config import load_config
     from gap_tributario.engine.comparacao import (
         comparar_leituras,
         descrever_corredor_controle,
@@ -173,39 +181,15 @@ def run() -> int:
     from gap_tributario.models import (
         ComparacaoFonte,
         DadosVRR,
-        PeriodoCalculo,
         Proveniencia,
     )
-    from gap_tributario.report.excel import ExcelReport
-    from gap_tributario.report.pdf import PDFReport
-
-    # === Estágio 1: CLI PARSE — PeriodoCalculo ===
-    try:
-        periodo = PeriodoCalculo.from_string(args.periodo)
-    except ValueError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 4
-
-    logger.info("Período: %s", periodo.label)
-
-    # === Estágio 2: CONFIG LOAD ===
-    try:
-        config = load_config(args.config)
-    except FileNotFoundError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 3
-    except ValueError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 3
-
-    # Override do diretório de saída via --saida
-    config.output_path = Path(args.saida)
+    from gap_tributario.report.ouro import CalculoAnual
 
     try:
         aliquota = config.get_aliquota(periodo)
+        legislacao = config.get_legislacao(periodo)
     except ValueError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 3
+        raise _FalhaPipeline(3, f"Erro: {exc}") from exc
 
     logger.info("Alíquota: %s (Lei vigente para %d)", aliquota, periodo.ano)
     logger.info("--- Extração ---")
@@ -213,14 +197,16 @@ def run() -> int:
     # === Estágio 3: EXTRACT ===
 
     # Proveniência: cada variável registra a fonte que efetivamente venceu a
-    # cascata (issue #5). A data de extração é stampada uma única vez.
-    data_extracao = date.today().isoformat()
+    # cascata (issue #5). `fontes` guarda a mesma escolha em forma de chave,
+    # que é o que a camada ouro grava.
     proveniencias: list = []
+    fontes: dict = {}
 
     # 3a. BCB PTAX — cotação média do dólar
     try:
         if args.ptax_manual is not None:
             ptax_media = Decimal(str(args.ptax_manual))
+            fontes["ptax"] = "manual"
             logger.info("PTAX manual (override): R$ %s/USD", ptax_media)
             proveniencias.append(
                 Proveniencia(
@@ -233,6 +219,7 @@ def run() -> int:
             )
         else:
             ptax_media = PTAXExtractor().extract(periodo)
+            fontes["ptax"] = "bcb_olinda"
             logger.info("PTAX média %s: R$ %s/USD", periodo.label, ptax_media)
             proveniencias.append(
                 Proveniencia(
@@ -243,13 +230,13 @@ def run() -> int:
                 )
             )
     except ExtractionError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 2
+        raise _FalhaPipeline(2, f"Erro: {exc}") from exc
 
     # 3b. VAB — cascata: --vab-manual → IMESC PIB Trimestral → IBGE SIDRA
     try:
         if args.vab_manual is not None:
             vab = Decimal(str(args.vab_manual))
+            fontes["vab"] = "manual"
             logger.info("VAB manual (override): R$ %s milhões", vab)
             proveniencias.append(
                 Proveniencia(
@@ -264,6 +251,7 @@ def run() -> int:
             imesc = ImescPibExtractor()
             try:
                 vab = imesc.extract(periodo)
+                fontes["vab"] = "imesc"
                 logger.info("VAB MA %s (IMESC): R$ %s milhões", periodo.label, vab)
                 proveniencias.append(imesc.proveniencia(data_extracao))
             except ExtractionError as exc_imesc:
@@ -273,6 +261,7 @@ def run() -> int:
                     exc_imesc,
                 )
                 vab = IBGEExtractor().extract(periodo)
+                fontes["vab"] = "ibge_sidra"
                 logger.info("VAB MA %s (IBGE fallback): R$ %s milhões", periodo.label, vab)
                 proveniencias.append(
                     Proveniencia(
@@ -284,8 +273,7 @@ def run() -> int:
                     )
                 )
     except ExtractionError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 2
+        raise _FalhaPipeline(2, f"Erro: {exc}") from exc
 
     # 3c. ICMS arrecadado — cascata: GFIS2 Parquet → SIGDEF (parquet limpo)
     #
@@ -296,6 +284,7 @@ def run() -> int:
     try:
         try:
             icms_arrecadado = ArrecadacaoExtractor(str(config.parquet_base_path)).extract(periodo)
+            fontes["icms"] = "gfis2"
             logger.info("ICMS arrecadado %s (GFIS2): R$ %s milhões", periodo.label, icms_arrecadado)
             proveniencias.append(
                 Proveniencia(
@@ -322,6 +311,7 @@ def run() -> int:
             )
             sigdef = SigdefIcmsExtractor()
             icms_arrecadado = sigdef.extract(periodo)
+            fontes["icms"] = "sigdef"
             logger.info(
                 "ICMS arrecadado %s (SIGDEF fallback): R$ %s milhões",
                 periodo.label,
@@ -329,8 +319,7 @@ def run() -> int:
             )
             proveniencias.append(sigdef.proveniencia(data_extracao))
     except ExtractionError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 2
+        raise _FalhaPipeline(2, f"Erro: {exc}") from exc
 
     # 3d. MDIC ComEx — exportações e importações
     try:
@@ -361,8 +350,9 @@ def run() -> int:
             logger.info("Exportações MA %s: R$ %s milhões", periodo.label, exportacoes_brl)
             logger.info("Importações MA %s: R$ %s milhões", periodo.label, importacoes_brl)
     except ExtractionError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 2
+        raise _FalhaPipeline(2, f"Erro: {exc}") from exc
+    fontes["exp"] = "manual" if args.exp_manual is not None else "mdic"
+    fontes["imp"] = "manual" if args.imp_manual is not None else "mdic_bruto"
 
     # 3d-bis. Siscomex é a fonte nº1 das importações: só ele traz o domicílio
     # fiscal do importador, que separa a importação maranhense da carga em
@@ -385,6 +375,7 @@ def run() -> int:
             except ExtractionError:
                 composicao_importacoes = {}
             fonte_importacoes = "Siscomex (SEFAZ-MA)"
+            fontes["imp"] = "siscomex"
             logger.info(
                 "Importações MA %s (Siscomex): R$ %s milhões",
                 periodo.label,
@@ -517,8 +508,7 @@ def run() -> int:
             ptax_media=ptax_media,
         )
     except Exception as exc:
-        print(f"Erro de validação: {exc}", file=sys.stderr)
-        return 1
+        raise _FalhaPipeline(1, f"Erro de validação: {exc}") from exc
 
     # === Estágio 5: CALCULATE ===
     try:
@@ -530,8 +520,7 @@ def run() -> int:
         logger.info("Gap Absoluto: R$ %s milhões", resultado.gap_absoluto)
         logger.info("Gap Percentual: %s%%", resultado.gap_percentual)
     except ValueError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 1
+        raise _FalhaPipeline(1, f"Erro: {exc}") from exc
 
     # === Estágio 5.5: DECOMPOSIÇÃO (policy vs compliance) — aditivo, opcional ===
     # A renúncia da AMF é anual; só decompomos períodos anuais. Ano sem renúncia
@@ -552,6 +541,147 @@ def run() -> int:
             )
     else:
         logger.info("Período trimestral: decomposição (renúncia anual) omitida.")
+
+    calculo = CalculoAnual(
+        resultado=resultado,
+        decomposicao=decomposicao,
+        proveniencias=proveniencias,
+        fontes=fontes,
+        importacoes_por_fonte=composicao_importacoes,
+        legislacao_aliquota=legislacao,
+    )
+    return calculo, dados_vrr, comparacao_fontes
+
+
+def _intervalo_anos(texto: str) -> range:
+    """"2020-2025" → range(2020, 2026)."""
+    inicio, _, fim = texto.partition("-")
+    primeiro, ultimo = int(inicio), int(fim)
+    if primeiro > ultimo:
+        raise ValueError(f"intervalo de anos invertido: {texto}")
+    return range(primeiro, ultimo + 1)
+
+
+def _exportar_ouro(args) -> int:
+    """Modo batch: um cálculo anual por ano de --anos, gravado nos CSVs da ouro."""
+    from datetime import date, datetime
+    from pathlib import Path
+
+    from gap_tributario import __version__
+    from gap_tributario.config import load_config
+    from gap_tributario.models import PeriodoCalculo
+    from gap_tributario.report.ouro import exportar_ouro
+
+    if args.anos is None:
+        print("Erro: --exportar-ouro exige --anos (ex.: 2020-2025)", file=sys.stderr)
+        return 4
+    # Um override manual valeria para todos os anos do intervalo, e cada ano
+    # tem o seu valor: no batch as variáveis vêm sempre das cascatas.
+    if any(v is not None for v in (args.ptax_manual, args.vab_manual,
+                                   args.exp_manual, args.imp_manual)):
+        print("Erro: --exportar-ouro não aceita os overrides --*-manual", file=sys.stderr)
+        return 4
+    try:
+        anos = _intervalo_anos(args.anos)
+    except ValueError as exc:
+        print(f"Erro: --anos inválido ({exc})", file=sys.stderr)
+        return 4
+
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format=FORMAT)
+    logger.info("=== Exportação da camada ouro: %s ===", args.anos)
+
+    try:
+        config = load_config(args.config)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 3
+
+    data_extracao = date.today().isoformat()
+    calculos = []
+    for ano in anos:
+        try:
+            calculo, _, _ = _calcular_periodo(PeriodoCalculo(ano=ano), args, config, data_extracao)
+        except _FalhaPipeline as falha:
+            print(f"{ano}: {falha.mensagem}", file=sys.stderr)
+            return falha.codigo
+        calculos.append(calculo)
+
+    arquivos = exportar_ouro(calculos, Path(args.exportar_ouro), datetime.now(), __version__)
+    for arquivo in arquivos.values():
+        print(arquivo)
+    return 0
+
+
+def run() -> int:
+    """Executa o pipeline completo de 7 estágios.
+
+    Returns:
+        Código de saída:
+            0  Sucesso
+            1  Erro de validação (Pandera / DadosVRR)
+            2  Erro de extração (fonte indisponível / OSError relatório)
+            3  Erro de configuração (YAML inválido / alíquota não encontrada)
+            4  Erro de argumento CLI (período inválido)
+    """
+    parser = create_parser()
+    args = parser.parse_args()
+
+    if args.exportar_ouro is not None:
+        return _exportar_ouro(args)
+
+    if args.periodo is None:
+        parser.print_help()
+        return 0
+
+    # === Estágio 6.6: Configurar Logging ===
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format=FORMAT)
+
+    logger.info("=== Calculadora Gap Tributário ICMS-MA ===")
+
+    # Imports lazy para não impactar tempo de --help/--version
+    from datetime import date
+    from pathlib import Path
+
+    from gap_tributario.config import load_config
+    from gap_tributario.models import PeriodoCalculo
+    from gap_tributario.report.excel import ExcelReport
+    from gap_tributario.report.pdf import PDFReport
+
+    # === Estágio 1: CLI PARSE — PeriodoCalculo ===
+    try:
+        periodo = PeriodoCalculo.from_string(args.periodo)
+    except ValueError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 4
+
+    logger.info("Período: %s", periodo.label)
+
+    # === Estágio 2: CONFIG LOAD ===
+    try:
+        config = load_config(args.config)
+    except FileNotFoundError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 3
+    except ValueError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 3
+
+    # Override do diretório de saída via --saida
+    config.output_path = Path(args.saida)
+
+    # === Estágios 3 a 5.5: EXTRACT, VALIDATE, CALCULATE, DECOMPOSE ===
+    # A data de extração é stampada uma única vez.
+    try:
+        calculo, dados_vrr, comparacao_fontes = _calcular_periodo(
+            periodo, args, config, date.today().isoformat()
+        )
+    except _FalhaPipeline as falha:
+        print(falha.mensagem, file=sys.stderr)
+        return falha.codigo
+    resultado = calculo.resultado
+    decomposicao = calculo.decomposicao
+    proveniencias = calculo.proveniencias
 
     logger.info("--- Relatório ---")
 

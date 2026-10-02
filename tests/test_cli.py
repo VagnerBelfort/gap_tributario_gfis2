@@ -986,3 +986,57 @@ def test_icms_cai_para_sigdef_quando_gfis2_falha(config_path, saida):
 
     assert result == 0
     mock_sigdef.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Modo batch --exportar-ouro (carga do Impala)
+# ---------------------------------------------------------------------------
+
+
+def test_exportar_ouro_calcula_cada_ano_e_grava_os_tres_csvs(config_path, tmp_path):
+    """--exportar-ouro roda o pipeline por ano e grava as tabelas da ouro."""
+    import csv
+
+    destino = tmp_path / "ouro"
+    with _mock_extractors(), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract",
+        return_value=_IMP,
+    ), patch(
+        "gap_tributario.extractors.siscomex.SiscomexSnapshotExtractor.extract_por_fonte",
+        return_value={"DI": _IMP},
+    ), patch(
+        "sys.argv",
+        ["gap-tributario", "--exportar-ouro", str(destino), "--anos", "2021-2022",
+         "--config", config_path],
+    ):
+        result = run()
+
+    assert result == 0
+    assert sorted(p.name for p in destino.iterdir()) == [
+        "g_gap_decomposicao.csv", "g_gap_proveniencia.csv", "g_gap_resultado.csv",
+    ]
+    with (destino / "g_gap_resultado.csv").open(encoding="utf-8") as f:
+        resultado = {linha["ano"]: linha for linha in csv.DictReader(f)}
+    assert list(resultado) == ["2021", "2022"]
+    assert resultado["2022"]["icms_potencial"] == "21065.22"
+    assert resultado["2022"]["fonte_imp"] == "siscomex"
+    with (destino / "g_gap_decomposicao.csv").open(encoding="utf-8") as f:
+        assert {linha["ano"] for linha in csv.DictReader(f)} == {"2022"}  # AMF começa em 2022
+    with (destino / "g_gap_proveniencia.csv").open(encoding="utf-8") as f:
+        assert len(list(csv.DictReader(f))) == 14
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        [],  # sem --anos
+        ["--anos", "2021-2022", "--vab-manual", "100"],  # override valeria para todos os anos
+        ["--anos", "2022-2021"],
+    ],
+)
+def test_exportar_ouro_rejeita_argumentos_invalidos(config_path, tmp_path, extra):
+    with patch(
+        "sys.argv",
+        ["gap-tributario", "--exportar-ouro", str(tmp_path), "--config", config_path, *extra],
+    ):
+        assert run() == 4

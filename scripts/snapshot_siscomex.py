@@ -5,6 +5,19 @@ Roda no cluster da SEFAZ, onde o Oracle e o cadastro de contribuintes são
 alcançáveis. Exporta um CSV AGREGADO — sem CNPJ, sem nome de importador, sem
 nível de DI — para consumo pelo `gap_tributario` fora da rede da SEFAZ.
 
+Grava também, no Impala, o que leu e o que agregou:
+
+- bronze (`--database-bronze`): `b_siscomex_di`, `b_duimp` e `b_duimp_carga`,
+  cópias das tabelas de origem com TODAS as versões das declarações, só as
+  colunas que este job usa, as chaves e o CNPJ. As regras abaixo (versão,
+  data, tipo) rodam no Spark sobre essas cópias, então uma mudança de regra
+  é reprocessamento, sem voltar ao Oracle.
+- prata (`--database-prata`): `s_gap_importacoes`, o mesmo agregado do CSV,
+  com `qtd_declaracoes` no lugar de `dis` e a data da extração em `dt_snapshot`.
+
+Os dois databases saem em `gfis2_dev` por padrão. A produção recebe por cópia
+do dev, depois da validação (`jobs/carga_gold_gap.py promover`).
+
 Regras de negócio, todas apuradas empiricamente (diagnósticos 1-3):
 
 - Chave da declaração é COMPOSTA: (NUM_DECL, SEQ_DECL). Join só por NUM_DECL
@@ -58,7 +71,8 @@ Uso:
   spark3-submit --master yarn --deploy-mode client \
     --jars /gfis2/jars/ojdbc8.jar \
     /gfis2/pipeline/gap_tributario/snapshot_siscomex.py \
-    --saida /gfis2/pipeline/gap_tributario/siscomex_importacoes.csv
+    --saida /gfis2/pipeline/gap_tributario/siscomex_importacoes.csv \
+    [--database-bronze gfis2_dev] [--database-prata gfis2_dev]
 """
 
 import argparse
@@ -83,55 +97,47 @@ DRIVER = "oracle.jdbc.driver.OracleDriver"
 
 TABELA_CADASTRO = "gfis2_bronze.b_contribuinte"
 
-# Uma linha por item da última versão de cada DI, já com o CIF e o CNPJ.
-_SQL_ITENS = """
-    WITH ultima AS (
-        SELECT TDS_NUM_DECL, MAX(TDS_SEQ_DECL) AS SEQ
-          FROM APL_SISCOMEX.TAB_DECL_SISCOMEX
-         GROUP BY TDS_NUM_DECL
-    )
-    SELECT d.TDS_NUM_DECL                                AS num_decl,
-           EXTRACT(YEAR  FROM d.TDS_DATA_DESEMBARACO)    AS ano,
-           TO_NUMBER(TO_CHAR(d.TDS_DATA_DESEMBARACO, 'Q')) AS trimestre,
-           d.TDS_UF_DESPACHO                             AS uf_despacho,
-           d.TDS_UF_IMPORTADOR                           AS uf_importador,
-           d.TDS_CNPJ                                    AS cnpj,
-           d.TDS_TIPO_DECL                               AS tipo_decl,
-           d.TDS_SITUACAO                                AS situacao,
-           FLOOR(i.TDI_TNM_COD_NCM / 1000000)            AS capitulo_ncm,
-           i.TDI_VALOR_BASE_CALC_II                      AS cif
+# Bronze da DI: um item por linha, de TODAS as versões. O left join mantém as
+# versões sem item, que contam na escolha da última versão (como no MAX(SEQ)
+# sobre o cabeçalho inteiro que esta query fazia no Oracle) e depois caem por
+# não ter valor.
+_SQL_DI = """
+    SELECT d.TDS_NUM_DECL           AS num_decl,
+           d.TDS_SEQ_DECL           AS seq_decl,
+           d.TDS_DATA_DESEMBARACO   AS data_desembaraco,
+           d.TDS_UF_DESPACHO        AS uf_despacho,
+           d.TDS_UF_IMPORTADOR      AS uf_importador,
+           d.TDS_CNPJ               AS cnpj,
+           d.TDS_TIPO_DECL          AS tipo_decl,
+           d.TDS_SITUACAO           AS situacao,
+           CASE WHEN i.TDI_TDS_NUM_DECL IS NULL THEN 0 ELSE 1 END AS tem_item,
+           i.TDI_TNM_COD_NCM        AS ncm,
+           i.TDI_VALOR_BASE_CALC_II AS cif
       FROM APL_SISCOMEX.TAB_DECL_SISCOMEX d
-      JOIN ultima u
-        ON d.TDS_NUM_DECL = u.TDS_NUM_DECL AND d.TDS_SEQ_DECL = u.SEQ
-      JOIN APL_SISCOMEX.TAB_ITEM_SISCOMEX i
+      LEFT JOIN APL_SISCOMEX.TAB_ITEM_SISCOMEX i
         ON d.TDS_NUM_DECL = i.TDI_TDS_NUM_DECL AND d.TDS_SEQ_DECL = i.TDI_TDS_SEQ_DECL
-     WHERE d.TDS_DATA_DESEMBARACO IS NOT NULL
-       AND (d.TDS_TIPO_DECL IS NULL OR d.TDS_TIPO_DECL = '01')
 """
 
 
-# Todas as linhas vigentes; a versão vigente de cada DUIMP é escolhida no Spark.
+# Bronze da DUIMP: todas as versões. Vigência, registro e versão escolhida
+# são filtrados no Spark.
 _SQL_DUIMP = """
     SELECT NUMERODUIMP                              AS num_decl,
            VERSAODECLARACAO                         AS versao,
            IDDUIMP                                  AS id_duimp,
+           STVIGENTE                                AS vigente,
            DATAHORAREGISTRO                         AS registro,
            IDUFIMPORTADOR                           AS id_uf,
            CNPJIMPORTADOR                           AS cnpj,
            VLMERCADORIALOCALDESCARGAREAL            AS cif
       FROM DUIMP
-     WHERE STVIGENTE = 'S'
-       AND DATAHORAREGISTRO IS NOT NULL
 """
 
-# Chegada da carga por versão da DUIMP. O diagnóstico achou uma carga por
-# DUIMP; o MAX só impede que uma duplicata futura multiplique o valor no join.
+# Bronze da CARGA: a chegada de cada carga, com o IDDUIMP da versão.
 _SQL_CARGA = """
-    SELECT IDDUIMP          AS id_duimp,
-           MAX(DATACHEGADA) AS chegada
+    SELECT IDDUIMP     AS id_duimp,
+           DATACHEGADA AS chegada
       FROM APL_PUCOMEX.CARGA@CENTRAL
-     WHERE IDDUIMP IS NOT NULL
-     GROUP BY IDDUIMP
 """
 
 # IDUFIMPORTADOR → sigla: índice da UF em ordem alfabética do nome.
@@ -163,6 +169,20 @@ def _ler_oracle(spark, url, sql):
     )
 
 
+def _gravar_tabela(spark, df, tabela):
+    """Sobrescreve `tabela` (Iceberg) com `df`, criando-a na primeira vez.
+
+    Temp view + INSERT OVERWRITE, o idioma dos jobs da gold da casa.
+    """
+    view = "tmp_" + tabela.replace(".", "_")
+    df.createOrReplaceTempView(view)
+    spark.sql(
+        f"CREATE TABLE IF NOT EXISTS {tabela} USING iceberg AS SELECT * FROM {view} WHERE 1 = 0"
+    )
+    spark.sql(f"INSERT OVERWRITE TABLE {tabela} SELECT * FROM {view}")
+    print(f"[GRAVADO] {tabela}")
+
+
 def _norm_cnpj(coluna):
     """CNPJ como string de 14 dígitos, sem '.0' de decimal e com zeros à esquerda."""
     limpo = F.regexp_replace(coluna.cast("string"), r"\.0+$", "")
@@ -172,6 +192,10 @@ def _norm_cnpj(coluna):
 def main():
     parser = argparse.ArgumentParser(description="Snapshot agregado de importações Siscomex")
     parser.add_argument("--saida", required=True, help="Caminho do CSV de saída")
+    parser.add_argument("--database-bronze", default="gfis2_dev",
+                        help="database das cópias de origem (default: gfis2_dev)")
+    parser.add_argument("--database-prata", default="gfis2_dev",
+                        help="database do agregado (default: gfis2_dev)")
     args = parser.parse_args()
 
     spark = (
@@ -184,7 +208,32 @@ def main():
     )
     spark.sparkContext.setLogLevel("ERROR")
 
-    itens = _ler_oracle(spark, JDBC_URL, _SQL_ITENS)
+    # --- Bronze: cópia das origens, todas as versões --------------------------
+    # Cada origem é lida do Oracle uma vez; as regras rodam sobre a cópia
+    # gravada, o mesmo caminho de um reprocessamento.
+    for sql, url, nome in (
+        (_SQL_DI, JDBC_URL, "b_siscomex_di"),
+        (_SQL_DUIMP, JDBC_URL_DUIMP, "b_duimp"),
+        (_SQL_CARGA, JDBC_URL_DUIMP, "b_duimp_carga"),
+    ):
+        _gravar_tabela(spark, _ler_oracle(spark, url, sql), f"{args.database_bronze}.{nome}")
+    bronze_di = spark.table(f"{args.database_bronze}.b_siscomex_di")
+    bronze_duimp = spark.table(f"{args.database_bronze}.b_duimp")
+    bronze_carga = spark.table(f"{args.database_bronze}.b_duimp_carga")
+
+    # --- DI: última versão, desembaraçada, tipo 01 ou nulo --------------------
+    # A última versão é escolhida entre TODOS os cabeçalhos, com ou sem item e
+    # com ou sem data; só depois caem os sem data e os de outro tipo.
+    ultima = bronze_di.groupBy("num_decl").agg(F.max("seq_decl").alias("seq_decl"))
+    itens = (
+        bronze_di.join(ultima, on=["num_decl", "seq_decl"], how="inner")
+        .filter(F.col("tem_item") == 1)
+        .filter(F.col("data_desembaraco").isNotNull())
+        .filter(F.col("tipo_decl").isNull() | (F.col("tipo_decl") == "01"))
+        .withColumn("ano", F.year("data_desembaraco"))
+        .withColumn("trimestre", F.quarter("data_desembaraco"))
+        .withColumn("capitulo_ncm", F.floor(F.col("ncm") / 1000000))
+    )
 
     # --- Resolução da UF nula pelo cadastro de contribuintes -----------------
     # A UF do contribuinte PJ está em `uf_icms` (preenchida em 4,646 mi das
@@ -256,7 +305,9 @@ def main():
     )
 
     # --- DUIMP ---------------------------------------------------------------
-    duimp = _ler_oracle(spark, JDBC_URL_DUIMP, _SQL_DUIMP)
+    duimp = bronze_duimp.filter(
+        (F.col("vigente") == "S") & F.col("registro").isNotNull()
+    )
     versao_vigente = Window.partitionBy("num_decl").orderBy(
         F.desc("versao"), F.desc("id_duimp")
     )
@@ -266,7 +317,13 @@ def main():
         .drop("rk")
     )
     # greatest do Spark ignora nulos: sem chegada, vale o registro.
-    carga = _ler_oracle(spark, JDBC_URL_DUIMP, _SQL_CARGA)
+    # O diagnóstico achou uma carga por DUIMP; o MAX só impede que uma
+    # duplicata futura multiplique o valor no join.
+    carga = (
+        bronze_carga.filter(F.col("id_duimp").isNotNull())
+        .groupBy("id_duimp")
+        .agg(F.max("chegada").alias("chegada"))
+    )
     duimp = (
         duimp.join(carga, on="id_duimp", how="left")
         .withColumn(
@@ -350,6 +407,20 @@ def main():
             F.sum("dis").alias("dis"), F.sum("cif_brl").alias("cif")
         ).orderBy("ano").show(30, truncate=False)
     agregado = agregado.filter((F.col("ano") >= 1997) & (F.col("ano") <= 2030))
+
+    # --- Prata: o mesmo agregado do CSV --------------------------------------
+    prata = agregado.select(
+        F.col("ano").cast("int").alias("ano"),
+        F.col("trimestre").cast("int").alias("trimestre"),
+        F.col("capitulo_ncm").cast("int").alias("capitulo_ncm"),
+        F.col("uf_despacho").cast("string").alias("uf_despacho"),
+        F.col("uf_final").cast("string").alias("uf_importador"),
+        F.col("dis").cast("bigint").alias("qtd_declaracoes"),
+        F.col("cif_brl").cast("decimal(18,2)").alias("cif_brl"),
+        F.col("fonte").cast("string").alias("fonte"),
+        F.current_date().alias("dt_snapshot"),
+    )
+    _gravar_tabela(spark, prata, f"{args.database_prata}.s_gap_importacoes")
 
     linhas = agregado.collect()
     with open(args.saida, "w", newline="", encoding="utf-8") as fh:

@@ -229,8 +229,19 @@ class AppConfig:
         Raises:
             ValueError: Se nenhuma alíquota estiver configurada para o período
         """
+        return self._vigente(periodo).aliquota
+
+    def get_legislacao(self, periodo: PeriodoCalculo) -> str:
+        """Retorna a referência legal da alíquota vigente para o período.
+
+        Raises:
+            ValueError: Se nenhuma alíquota estiver configurada para o período
+        """
+        return self._vigente(periodo).legislacao
+
+    def _vigente(self, periodo: PeriodoCalculo) -> ConfigAliquota:
         for aliq in self.aliquotas:
             if aliq.ano_inicio <= periodo.ano:
                 if aliq.ano_fim is None or periodo.ano <= aliq.ano_fim:
-                    return aliq.aliquota
+                    return aliq
         raise ValueError(f"Nenhuma alíquota configurada para {periodo.ano}")
