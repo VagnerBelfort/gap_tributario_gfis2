@@ -22,7 +22,7 @@ from gap_tributario.models import (
     Proveniencia,
     RenunciaFiscal,
 )
-from gap_tributario.report.ouro import CalculoAnual, exportar_ouro
+from gap_tributario.report.ouro import CalculoPeriodo, exportar_ouro
 
 COLUNAS_RESULTADO = [
     "ano", "tipo_periodo", "nro_trimestre", "vab", "exportacoes", "importacoes",
@@ -46,7 +46,7 @@ def _cabecalho(caminho: Path) -> list[str]:
 
 
 def _calculo(
-    ano: int,
+    ano: int | str,
     vab: str,
     exp: str,
     imp: str,
@@ -56,9 +56,9 @@ def _calculo(
     fontes: dict | None = None,
     ordem_cascata: dict | None = None,
     importacoes_por_fonte: dict | None = None,
-) -> CalculoAnual:
+) -> CalculoPeriodo:
     dados = DadosVRR(
-        periodo=PeriodoCalculo(ano=ano),
+        periodo=PeriodoCalculo.from_string(str(ano)),
         icms_arrecadado=Decimal(icms),
         vab=Decimal(vab),
         exportacoes_brl=Decimal(exp),
@@ -67,7 +67,7 @@ def _calculo(
         ptax_media=Decimal("5.1655"),
     )
     resultado = MotorVRR().calcular(dados)
-    return CalculoAnual(
+    return CalculoPeriodo(
         resultado=resultado,
         decomposicao=decompor_gap(resultado, renuncia) if renuncia else None,
         proveniencias=[
@@ -89,13 +89,13 @@ def _calculo(
 
 
 @pytest.fixture
-def calculo_2022() -> CalculoAnual:
+def calculo_2022() -> CalculoPeriodo:
     """Entradas do golden de fórmula MA 2022 (ver docstring de engine/vrr.py)."""
     return _calculo(2022, vab="124859", exp="29754", imp="21924", icms="10917", aliq="0.18")
 
 
 def test_resultado_tem_as_colunas_do_ddl_de_producao_e_os_valores_do_golden(
-    tmp_path: Path, calculo_2022: CalculoAnual
+    tmp_path: Path, calculo_2022: CalculoPeriodo
 ):
     arquivos = exportar_ouro([calculo_2022], tmp_path, DT_CALCULO)
 
@@ -251,3 +251,22 @@ def test_origem_e_fonte_repetem_os_textos_da_carga_de_agosto(tmp_path: Path):
         "Alíquota modal": ("config/aliquotas.yaml", "Lei Estadual vigente até 2022"),
         "Renúncia fiscal (ICMS)": ("AMF Tabela 7 (LDO/MA)", "LDO-2022"),
     }
+
+
+def test_trimestre_sai_com_tipo_t_sem_decomposicao_e_com_renuncia_anual_explicada(tmp_path: Path):
+    """A renúncia da AMF é anual: o trimestre não tem decomposição nem valor de renúncia."""
+    trimestre = _calculo("2022-T2", vab="31000", exp="7400", imp="9900", icms="2871.4",
+                         aliq="0.18")
+
+    arquivos = exportar_ouro([trimestre], tmp_path, DT_CALCULO)
+
+    [linha] = _ler(arquivos["g_gap_resultado"])
+    assert (linha["ano"], linha["tipo_periodo"], linha["nro_trimestre"]) == ("2022", "T", "2")
+    assert linha["icms_potencial"] == "6030.00"  # (31.000 − 7.400 + 9.900) × 0,18
+    assert _ler(arquivos["g_gap_decomposicao"]) == []
+    proveniencia = _ler(arquivos["g_gap_proveniencia"])
+    assert [p["variavel"] for p in proveniencia] == VARIAVEIS_OURO
+    assert {(p["tipo_periodo"], p["nro_trimestre"]) for p in proveniencia} == {("T", "2")}
+    renuncia = proveniencia[-1]
+    assert renuncia["valor"] == ""
+    assert "anual" in renuncia["fonte"]

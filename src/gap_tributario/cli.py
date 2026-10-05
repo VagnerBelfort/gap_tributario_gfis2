@@ -121,8 +121,9 @@ Exemplos:
         type=str,
         metavar="DIRETORIO",
         help=(
-            "Modo batch: calcula cada ano de --anos e grava os CSVs das tabelas "
-            "gfis2_ouro.g_gap_* em DIRETORIO (carga do Impala)"
+            "Modo batch: calcula cada ano de --anos e seus trimestres (os com VAB "
+            "trimestral do IMESC) e grava os CSVs das tabelas gfis2_ouro.g_gap_* "
+            "em DIRETORIO (carga do Impala)"
         ),
     )
 
@@ -184,7 +185,7 @@ def _calcular_periodo(periodo, args, config, data_extracao: str):
     """Estágios 3 a 5.5 (extração, validação, cálculo, decomposição) de um período.
 
     Returns:
-        (CalculoAnual, DadosVRR, comparacao_fontes)
+        (CalculoPeriodo, DadosVRR, comparacao_fontes)
 
     Raises:
         _FalhaPipeline: com o código de saída do estágio que falhou.
@@ -212,7 +213,7 @@ def _calcular_periodo(periodo, args, config, data_extracao: str):
         DadosVRR,
         Proveniencia,
     )
-    from gap_tributario.report.ouro import CalculoAnual
+    from gap_tributario.report.ouro import CalculoPeriodo
 
     try:
         aliquota = config.get_aliquota(periodo)
@@ -573,7 +574,7 @@ def _calcular_periodo(periodo, args, config, data_extracao: str):
     else:
         logger.info("Período trimestral: decomposição (renúncia anual) omitida.")
 
-    calculo = CalculoAnual(
+    calculo = CalculoPeriodo(
         resultado=resultado,
         decomposicao=decomposicao,
         proveniencias=proveniencias,
@@ -595,7 +596,7 @@ def _intervalo_anos(texto: str) -> range:
 
 
 def _exportar_ouro(args) -> int:
-    """Modo batch: um cálculo anual por ano de --anos, gravado nos CSVs da ouro."""
+    """Modo batch: cada ano de --anos e seus trimestres, gravados nos CSVs da ouro."""
     from datetime import date, datetime
     from pathlib import Path
 
@@ -630,12 +631,25 @@ def _exportar_ouro(args) -> int:
     data_extracao = date.today().isoformat()
     calculos = []
     for ano in anos:
-        try:
-            calculo, _, _ = _calcular_periodo(PeriodoCalculo(ano=ano), args, config, data_extracao)
-        except _FalhaPipeline as falha:
-            print(f"{ano}: {falha.mensagem}", file=sys.stderr)
-            return falha.codigo
-        calculos.append(calculo)
+        periodos = [PeriodoCalculo(ano=ano)] + [
+            PeriodoCalculo(ano=ano, trimestre=t) for t in range(1, 5)
+        ]
+        for periodo in periodos:
+            try:
+                calculo, _, _ = _calcular_periodo(periodo, args, config, data_extracao)
+            except _FalhaPipeline as falha:
+                print(f"{periodo.label}: {falha.mensagem}", file=sys.stderr)
+                return falha.codigo
+            # Só o IMESC tem VAB trimestral nativo; o do SIDRA é o ano / 4 e
+            # sairia com cara de dado.
+            if not periodo.is_anual and calculo.fontes["vab"] != "imesc":
+                logger.warning(
+                    "%s: VAB trimestral veio de %s, não do IMESC. Trimestre não publicado.",
+                    periodo.label,
+                    calculo.fontes["vab"],
+                )
+                continue
+            calculos.append(calculo)
 
     arquivos = exportar_ouro(calculos, Path(args.exportar_ouro), datetime.now())
     for arquivo in arquivos.values():

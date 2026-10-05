@@ -75,6 +75,12 @@ CATEGORICAS = {
     "g_gap_proveniencia": ["tipo_periodo", "variavel", "fonte_vencedora"],
 }
 
+# Valores que o painel conhece mesmo sem estarem na produção de hoje: a carga
+# de 31/08/2026 só tinha anos, mas a tela foi construída com trimestres.
+VALORES_PERMITIDOS = {
+    "tipo_periodo": {"A", "T"},
+}
+
 # Mesma lista de `extractors/arrecadacao.py::_COLUNAS_ICMS` (um teste garante).
 COLUNAS_ICMS = [
     "val_icms_normal",
@@ -117,16 +123,21 @@ def diferencas_colunas(esperadas, encontradas):
     return problemas
 
 
-def valores_ineditos(novos, producao):
-    """Valores categóricos da carga que a produção nunca teve.
+def valores_ineditos(novos, producao, permitidos=None):
+    """Valores categóricos da carga que nem a produção nem a lista permitida têm.
 
     Args:
         novos: coluna → conjunto de valores distintos da carga.
         producao: coluna → conjunto de valores distintos hoje em produção.
+        permitidos: coluna → valores aceitos além dos da produção
+            (default: VALORES_PERMITIDOS).
     """
+    if permitidos is None:
+        permitidos = VALORES_PERMITIDOS
     problemas = []
     for coluna in sorted(novos):
-        ineditos = set(novos[coluna]) - set(producao.get(coluna, set()))
+        conhecidos = set(producao.get(coluna, set())) | set(permitidos.get(coluna, set()))
+        ineditos = set(novos[coluna]) - conhecidos
         if ineditos:
             problemas.append(
                 f"{coluna}: valores que a produção não tem: {sorted(ineditos)}"

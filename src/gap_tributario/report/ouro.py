@@ -1,4 +1,4 @@
-"""Exportação do cálculo anual para a camada ouro do Impala (gfis2_ouro.g_gap_*).
+"""Exportação do cálculo por período (anual e trimestral) para a camada ouro do Impala (gfis2_ouro.g_gap_*).
 
 Gera um CSV por tabela, com as colunas na ordem do DDL de produção. O painel da
 SEFAZ lê essas tabelas: colunas, tipos e valores categóricos (fonte_*, variavel,
@@ -63,8 +63,8 @@ _COMPONENTE_POR_MODALIDADE = {
 
 
 @dataclass(frozen=True)
-class CalculoAnual:
-    """Tudo o que o CLI apurou para um ano, na forma que a ouro precisa.
+class CalculoPeriodo:
+    """Tudo o que o CLI apurou para um período, na forma que a ouro precisa.
 
     `fontes` traz a chave da fonte que venceu cada cascata ("imesc",
     "ibge_sidra", "gfis2", "sigdef", "siscomex", "mdic_bruto", "mdic",
@@ -82,14 +82,20 @@ class CalculoAnual:
     legislacao_aliquota: str = ""
 
 
+def _periodo(c: CalculoPeriodo) -> tuple:
+    """(ano, tipo_periodo, nro_trimestre) no grão da ouro."""
+    p = c.resultado.periodo
+    return (p.ano, "A", 0) if p.is_anual else (p.ano, "T", p.trimestre)
+
+
 def _q(valor: Decimal, casas: int) -> str:
     return str(valor.quantize(Decimal(1).scaleb(-casas), rounding=ROUND_HALF_UP))
 
 
-def _linha_resultado(c: CalculoAnual, dt_calculo: str, versao: str, id_execucao: str) -> list:
+def _linha_resultado(c: CalculoPeriodo, dt_calculo: str, versao: str, id_execucao: str) -> list:
     r = c.resultado
     return [
-        r.periodo.ano, "A", 0,
+        *_periodo(c),
         _q(r.vab, 2), _q(r.exportacoes_brl, 2), _q(r.importacoes_brl, 2),
         # A base sai do potencial do motor, sem refazer a fórmula aqui.
         _q(r.icms_potencial / r.aliquota_padrao, 2),
@@ -102,7 +108,7 @@ def _linha_resultado(c: CalculoAnual, dt_calculo: str, versao: str, id_execucao:
     ]
 
 
-def _linhas_decomposicao(c: CalculoAnual, dt_calculo: str, id_execucao: str) -> list:
+def _linhas_decomposicao(c: CalculoPeriodo, dt_calculo: str, id_execucao: str) -> list:
     d = c.decomposicao
     if d is None:
         # Ano sem AMF não tem linha: o painel trata a ausência, não o zero.
@@ -132,7 +138,7 @@ def _milhoes(valor: Decimal) -> str:
     return f"{valor:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-def _linhas_proveniencia(c: CalculoAnual, dt_calculo: str, id_execucao: str) -> list:
+def _linhas_proveniencia(c: CalculoPeriodo, dt_calculo: str, id_execucao: str) -> list:
     r = c.resultado
     ano = r.periodo.ano
     da_cli = {p.variavel: p for p in c.proveniencias}
@@ -164,13 +170,17 @@ def _linhas_proveniencia(c: CalculoAnual, dt_calculo: str, id_execucao: str) -> 
         p = da_cli["Renúncia Fiscal (ICMS)"]
         variaveis.append(("Renúncia fiscal (ICMS)", renuncia.total, "AMF Tabela 7 (LDO/MA)",
                           renuncia.vintage, p.data_extracao, p.observacoes, "amf", 1))
+    elif not r.periodo.is_anual:
+        variaveis.append(("Renúncia fiscal (ICMS)", None, "AMF Tabela 7 (LDO/MA)",
+                          "Renúncia é anual: sem valor trimestral", hoje,
+                          "A decomposição policy × compliance só existe no período anual", None, 1))
     else:
         variaveis.append(("Renúncia fiscal (ICMS)", None, "AMF Tabela 7 (LDO/MA)",
                           f"Sem cobertura para {ano}", hoje,
                           "Cobertura AMF inicia em 2022", None, 1))
 
     return [
-        [ano, "A", 0, variavel, "" if valor is None else _q(valor, 4),
+        [*_periodo(c), variavel, "" if valor is None else _q(valor, 4),
          origem, fonte, dt_extracao, obs, vencedora or "", ordem, dt_calculo, id_execucao]
         for variavel, valor, origem, fonte, dt_extracao, obs, vencedora, ordem in variaveis
     ]
@@ -185,7 +195,7 @@ def _gravar(caminho: Path, colunas: list, linhas: list) -> Path:
 
 
 def exportar_ouro(
-    calculos: List[CalculoAnual],
+    calculos: List[CalculoPeriodo],
     destino: Path,
     dt_calculo: datetime,
 ) -> Dict[str, Path]:

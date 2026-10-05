@@ -128,7 +128,9 @@ def carregar(spark, csv_dir, database, database_prata):
         _conferir_categoricas(spark, df, tabela, caminho)
         frames[tabela] = df
 
-    resultado = frames["g_gap_resultado"]
+    # As conferências comparam totais anuais: a linha T4 não pode tomar o
+    # lugar da anual no dicionário por ano.
+    resultado = frames["g_gap_resultado"].filter(F.col("tipo_periodo") == "A")
     anos = [r[0] for r in resultado.select("ano").collect()]
 
     icms_csv = _por_ano(resultado.select("ano", "icms_arrecadado").collect())

@@ -1,7 +1,9 @@
 # Runbook — carga do Gap Tributário no Impala
 
-Publica as importações (DI + DUIMP) e o gap anual de 2020 a 2025 nas tabelas
-que o painel da SEFAZ lê. Uma extração alimenta tudo: o CSV do CLI, a prata e o
+Publica as importações (DI + DUIMP) e o gap de 2020 a 2025 nas tabelas que o
+painel da SEFAZ lê: todos os anos e os trimestres com VAB trimestral do IMESC
+(2021 T1 em diante; os de 2020 são pulados com aviso, porque o VAB do SIDRA no
+trimestre é o ano dividido por 4). Uma extração alimenta tudo: o CSV do CLI, a prata e o
 cálculo. A carga passa primeiro pelo `gfis2_dev` e chega à produção **por cópia**
 do que foi validado.
 
@@ -89,8 +91,11 @@ hdfs dfs -put -f /gfis2/pipeline/gap_tributario/ouro_AAAAMMDD/*.csv /tmp/gap_tri
 1. `pytest` verde no passo 4, golden de 2022 incluído.
 2. Importações de 2020 a 2025 dentro do corredor do MDIC (+2% a +13%): nenhum
    aviso de corredor no log do passo 4.
-3. O passo 5 imprime `6`, `24` e `42` linhas (resultado, decomposição,
-   proveniência), as mesmas contagens da produção.
+3. O passo 5 imprime `26`, `24` e `182` linhas (resultado, decomposição,
+   proveniência): 6 anos + 20 trimestres; decomposição só nos anos com AMF;
+   7 variáveis por período. Nos trimestres, VAB, importações e ICMS somam o
+   ano; as exportações diferem em até ~0,4%, porque cada trimestre usa a PTAX
+   do próprio trimestre.
 4. O passo 5 imprime `ok` em "Importações do CSV × soma MA de gfis2_dev.s_gap_importacoes".
 5. O passo 5 imprime `ok` em "ICMS do CSV × gfis2_ouro.g_arrecadacao". Um aviso
    aqui não aborta: confira se o CSV é do dia e decida.

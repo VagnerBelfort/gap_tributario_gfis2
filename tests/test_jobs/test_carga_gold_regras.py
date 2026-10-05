@@ -76,3 +76,11 @@ def test_colunas_de_icms_sao_as_mesmas_do_extrator():
     from gap_tributario.extractors.arrecadacao import _COLUNAS_ICMS
 
     assert regras.COLUNAS_ICMS == _COLUNAS_ICMS
+
+
+def test_trimestre_e_aceito_mesmo_com_a_producao_so_anual():
+    """A carga de 31/08 só tinha anos; o painel foi construído com trimestres."""
+    producao = {"tipo_periodo": {"A"}}
+
+    assert regras.valores_ineditos({"tipo_periodo": {"A", "T"}}, producao) == []
+    assert regras.valores_ineditos({"tipo_periodo": {"A", "X"}}, producao) != []

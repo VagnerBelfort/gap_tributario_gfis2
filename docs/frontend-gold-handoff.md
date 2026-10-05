@@ -19,15 +19,16 @@ impala-shell -i sefazbige02.sefaz.ma.gov.br -d default -k --ssl \
 
 | Tabela | Linhas | Serve |
 |---|---|---|
-| `gfis2_ouro.g_gap_resultado` | 6 | KPIs, evolução, waterfall, gráfico trimestral, tabela de anos, tabela trimestral |
+| `gfis2_ouro.g_gap_resultado` | 26 | KPIs, evolução, waterfall, gráfico trimestral, tabela de anos, tabela trimestral |
 | `gfis2_ouro.g_gap_decomposicao` | 24 | Policy × Compliance + modalidades de renúncia |
-| `gfis2_ouro.g_gap_proveniencia` | 42 | Tabela "Componentes da fórmula & proveniência" |
+| `gfis2_ouro.g_gap_proveniencia` | 182 | Tabela "Componentes da fórmula & proveniência" |
 
 `gfis2_dev` mantém as mesmas 3 tabelas para uso em desenvolvimento/testes.
 
 **Queries prontas: `docs/pipeline-impala-medallion.md` §4.**
 
-Hoje só há linhas anuais, de 2020 a 2025. Para repopular, siga
+Hoje há os anos de 2020 a 2025 e os trimestres de 2021 T1 a 2025 T4. 2020 não
+tem trimestres: o VAB trimestral só existe no IMESC, que começa em 2021. Para repopular, siga
 `docs/runbook-carga-impala.md`: o CLI calcula, a carga passa pelo `gfis2_dev` e
 chega à `gfis2_ouro` por cópia.
 

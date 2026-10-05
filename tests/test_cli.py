@@ -1016,14 +1016,22 @@ def test_exportar_ouro_calcula_cada_ano_e_grava_os_tres_csvs(config_path, tmp_pa
         "g_gap_decomposicao.csv", "g_gap_proveniencia.csv", "g_gap_resultado.csv",
     ]
     with (destino / "g_gap_resultado.csv").open(encoding="utf-8") as f:
-        resultado = {linha["ano"]: linha for linha in csv.DictReader(f)}
-    assert list(resultado) == ["2021", "2022"]
-    assert resultado["2022"]["icms_potencial"] == "21065.22"
-    assert resultado["2022"]["fonte_imp"] == "siscomex"
+        resultado = {
+            (linha["ano"], linha["tipo_periodo"], linha["nro_trimestre"]): linha
+            for linha in csv.DictReader(f)
+        }
+    # Cada ano sai com a linha anual e os quatro trimestres (VAB do IMESC).
+    assert list(resultado) == [
+        (ano, tipo, tri)
+        for ano in ("2021", "2022")
+        for tipo, tri in [("A", "0"), ("T", "1"), ("T", "2"), ("T", "3"), ("T", "4")]
+    ]
+    assert resultado[("2022", "A", "0")]["icms_potencial"] == "21065.22"
+    assert resultado[("2022", "A", "0")]["fonte_imp"] == "siscomex"
     with (destino / "g_gap_decomposicao.csv").open(encoding="utf-8") as f:
         assert {linha["ano"] for linha in csv.DictReader(f)} == {"2022"}  # AMF começa em 2022
     with (destino / "g_gap_proveniencia.csv").open(encoding="utf-8") as f:
-        assert len(list(csv.DictReader(f))) == 14
+        assert len(list(csv.DictReader(f))) == 70  # 10 períodos × 7 variáveis
 
 
 @pytest.mark.parametrize(
@@ -1066,7 +1074,8 @@ def _exportar_proveniencia(argv_extra, config_path, tmp_path, imesc_falha=False)
     ):
         assert run() == 0
     with (destino / "g_gap_proveniencia.csv").open(encoding="utf-8") as f:
-        return {linha["variavel"]: linha for linha in csv.DictReader(f)}
+        linhas = list(csv.DictReader(f))
+    return {linha["variavel"]: linha for linha in linhas if linha["tipo_periodo"] == "A"}
 
 
 def test_exportar_ouro_grava_a_posicao_da_fonte_que_venceu_a_cascata(config_path, tmp_path):
@@ -1095,3 +1104,14 @@ def test_icms_carrega_a_data_de_corte_do_export_da_arrecadacao(tmp_path):
     prov = _exportar_proveniencia([], str(config), tmp_path)
 
     assert prov["ICMS Arrecadado"]["dt_extracao"] == "2026-09-23"
+
+
+def test_exportar_ouro_pula_trimestre_sem_vab_trimestral_do_imesc(config_path, tmp_path):
+    """VAB do SIDRA no trimestre é o ano dividido por 4: não é publicado."""
+    import csv
+
+    _exportar_proveniencia([], config_path, tmp_path, imesc_falha=True)
+
+    with (tmp_path / "ouro" / "g_gap_resultado.csv").open(encoding="utf-8") as f:
+        periodos = [(linha["tipo_periodo"], linha["fonte_vab"]) for linha in csv.DictReader(f)]
+    assert periodos == [("A", "ibge_sidra")]
