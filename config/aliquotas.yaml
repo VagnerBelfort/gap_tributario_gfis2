@@ -18,7 +18,7 @@ aliquotas:
 
 fontes:
   # Gold agregada por ano × trimestre (scripts/export_arrecadacao_agregada.py).
-  parquet_base_path: "./bases/g_arrecadacao_agregada_20260923/"
+  parquet_base_path: "./bases/g_arrecadacao_agregada_20261002/"
   mdic_base_path: "./mdic_comex/dados/"
   siscomex_snapshot_path: "./bases/siscomex_importacoes.csv"
 
