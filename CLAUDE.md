@@ -226,8 +226,11 @@ Cada resultado carrega um objeto
   `jobs/carga_gold_regras.py`, e a produção recebe por cópia do dev (`promover`),
   nunca por carga direta. O `snapshot_siscomex.py` grava junto a bronze
   (`b_siscomex_di`, `b_duimp`, `b_duimp_carga`, todas as versões) e a prata
-  (`s_gap_importacoes`). Os jobs rodam no Python 3.6.8 do driver. Passo a passo
-  em `docs/runbook-carga-impala.md`.
+  (`s_gap_importacoes`). Os jobs rodam no Python 3.6.8 do driver. Trimestre só
+  sai com VAB trimestral do IMESC (2020 não tem). O painel HML lê o
+  `gfis2_dev`; o de produção, a `gfis2_ouro`. O usuário `gfis2` tem limite de
+  logins simultâneos: uma sessão SSH persistente, jobs com `setsid nohup`.
+  Passo a passo, acesso e histórico de cargas em `docs/runbook-carga-impala.md`.
 
 ## Comandos principais
 
